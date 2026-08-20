@@ -75,7 +75,9 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     .morse-legend .lg-item { display: flex; justify-content: space-between; align-items: center; color: #d1d5db; padding: 2px 4px; border-radius: 4px; }
     .morse-legend .lg-item b { color: #FFF; }
     .morse-legend .lg-item span { font-family: monospace; color: var(--term-green); letter-spacing: 1px; }
-    .status { text-align: center; font-size: 0.75rem; color: var(--text-muted); margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .status { text-align: left; font-size: 0.75rem; color: var(--text-muted); flex: 1; }
+    .footer { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .lang-btn { flex-shrink: 0; font-size: 0.75rem; padding: 4px 12px; }
   </style>
 </head>
 <body>
@@ -84,7 +86,6 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       <img src="/logo.svg" alt="Logo RCV" style="width: 68px; height: 68px; margin-bottom: 8px;">
       <h1>RADIO CLUB VENEZOLANO</h1>
       <div class="sub-title">CASA REGIONAL MARACAY • YV4AA</div>
-      <button class="btn-sec" style="margin-top: 8px; font-size: 0.75rem; padding: 4px 12px;" onclick="toggleLang()" id="langBtn">🌐 EN</button>
     </div>
 
     <div class="tabs">
@@ -109,7 +110,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
         <div class="word-count" id="displayCount">0 de 0</div>
       </div>
       <div class="section">
-        <label data-i18n="list_pause">PAUSA AUTO: <span class="val-display" id="pauseVal">2.0 s</span></label>
+        <label><span data-i18n="list_pause">PAUSA AUTO:</span> <span class="val-display" id="pauseVal">2.0 s</span></label>
         <input type="range" id="pauseSlider" min="0.5" max="5.0" step="0.5" value="2.0" oninput="document.getElementById('pauseVal').innerText=this.value+' s'">
         <label class="checkbox-container">
           <input type="checkbox" id="autoNavPlay">
@@ -168,7 +169,6 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
         </div>
         <div class="btn-group" style="margin-top: 10px;">
           <button class="btn-sec" onclick="clearDecoder()" data-i18n="dec_clear">🗑 LIMPIAR</button>
-          <button class="btn-play" onclick="copyDecoderText()" data-i18n="dec_copy">📋 COPIAR</button>
         </div>
         <div style="margin-top: 10px;">
           <button class="btn-sec" style="width: 100%;" onclick="toggleBlindLegend()" id="legendBlindBtn">👁 OCULTO: OFF</button>
@@ -181,15 +181,15 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       <div class="net-box" id="netStatusBox"><span data-i18n="cfg_netcheck">Estado de Red: Consultando...</span></div>
       
       <div class="section">
-        <label data-i18n="cfg_speed">VELOCIDAD: <span class="val-display" id="wpmVal">15 WPM</span></label>
+        <label><span data-i18n="cfg_speed">VELOCIDAD:</span> <span class="val-display" id="wpmVal">15 WPM</span></label>
         <input type="range" id="wpmSlider" min="5" max="40" value="15" oninput="updateWPM(this.value)">
       </div>
       <div class="section">
-        <label data-i18n="cfg_tone">FRECUENCIA DE TONO: <span class="val-display" id="freqVal">700 Hz</span></label>
+        <label><span data-i18n="cfg_tone">FRECUENCIA DE TONO:</span> <span class="val-display" id="freqVal">700 Hz</span></label>
         <input type="range" id="freqSlider" min="400" max="1000" step="25" value="700" oninput="updateFreq(this.value)">
       </div>
       <div class="section">
-        <label data-i18n="cfg_vol">VOLUMEN: <span class="val-display" id="volVal">80%</span></label>
+        <label><span data-i18n="cfg_vol">VOLUMEN:</span> <span class="val-display" id="volVal">80%</span></label>
         <input type="range" id="volSlider" min="0" max="100" value="80" oninput="updateVol(this.value)">
       </div>
 
@@ -216,7 +216,10 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       </div>
     </div>
 
-    <div class="status" id="status" data-i18n="status_ready">Listo | Modo Dark Activo</div>
+    <div class="footer">
+      <div class="status" id="status" data-i18n="status_ready">Listo | Modo Dark Activo</div>
+      <button class="btn-sec lang-btn" onclick="toggleLang()" id="langBtn">🌐 EN</button>
+    </div>
   </div>
 
   <script>
@@ -377,7 +380,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       setStatus(t('s_transmitting'), '#3a4ee0');
       fetch('/play?text=' + encodeURIComponent(text)).then(() => setStatus(t('s_ready'), '#8c93a8'));
     }
-    function setPreset(txt) { document.getElementById('msgText').value = txt; sendContinuous(); }
+    function setPreset(txt) { document.getElementById('msgText').value = txt; setStatus(t('s_ready'), '#8c93a8'); }
     function playChar(ch) { fetch('/play?text=' + encodeURIComponent(ch)); }
 
     let legendBlind = false;
@@ -535,14 +538,6 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
         document.getElementById('decodedText').innerText = t('dec_waiting');
         document.getElementById('liveWpm').innerText = "--";
       });
-    }
-
-    function copyDecoderText() {
-      const t = document.getElementById('decodedText').innerText;
-      if (t && t !== I18N.es.dec_waiting && t !== I18N.en.dec_waiting) {
-        navigator.clipboard.writeText(t);
-        setStatus(t('s_copied'), "#7d8eff");
-      }
     }
 
     function scanWiFi() {
