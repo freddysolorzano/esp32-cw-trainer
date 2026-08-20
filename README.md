@@ -60,7 +60,7 @@ Built for radio clubs, classrooms, and self-training.
 ### Getting started
 
 1. Install [Arduino IDE](https://www.arduino.cc/en/software) with the [ESP32 core 2.0.6](https://github.com/espressif/arduino-esp32)
-2. Open `cw_trainer_v9.ino` (keep `index_html.h` and `logo.h` in the same folder)
+2. Open `cw_trainer.ino` (keep `index_html.h` and `logo.h` in the same folder)
 3. Select your ESP32 board (e.g. "ESP32 Dev Module")
 4. Wire the buzzer to GPIO 25, LED to GPIO 27, straight key to GPIO 18 (and GND)
 5. Flash and power on
@@ -136,7 +136,7 @@ Hecho para radio clubes, aulas y auto-entrenamiento.
 ### Primeros pasos
 
 1. Instala [Arduino IDE](https://www.arduino.cc/en/software) con el [core ESP32 2.0.6](https://github.com/espressif/arduino-esp32)
-2. Abre `cw_trainer_v9.ino` (mantén `index_html.h` y `logo.h` en la misma carpeta)
+2. Abre `cw_trainer.ino` (mantén `index_html.h` y `logo.h` en la misma carpeta)
 3. Selecciona tu placa ESP32 (ej. "ESP32 Dev Module")
 4. Conecta el buzzer al GPIO 25, el LED al GPIO 27, la llave simple al GPIO 18 (y GND)
 5. Flashea y enciende
