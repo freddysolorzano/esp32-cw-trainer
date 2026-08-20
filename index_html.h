@@ -84,59 +84,60 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       <img src="/logo.svg" alt="Logo RCV" style="width: 68px; height: 68px; margin-bottom: 8px;">
       <h1>RADIO CLUB VENEZOLANO</h1>
       <div class="sub-title">CASA REGIONAL MARACAY • YV4AA</div>
+      <button class="btn-sec" style="margin-top: 8px; font-size: 0.75rem; padding: 4px 12px;" onclick="toggleLang()" id="langBtn">🌐 EN</button>
     </div>
 
     <div class="tabs">
-      <button class="tab-btn active" id="tab1Btn" onclick="setTab(1)">LISTA</button>
-      <button class="tab-btn" id="tab2Btn" onclick="setTab(2)">TEXTO</button>
-      <button class="tab-btn" id="tab3Btn" onclick="setTab(3)">TECLADO</button>
-      <button class="tab-btn" id="tab4Btn" onclick="setTab(4)">DECODER</button>
-      <button class="tab-btn" id="tab5Btn" onclick="setTab(5)">⚙ CONFIG</button>
+      <button class="tab-btn active" id="tab1Btn" onclick="setTab(1)" data-i18n="tab_list">LISTA</button>
+      <button class="tab-btn" id="tab2Btn" onclick="setTab(2)" data-i18n="tab_text">TEXTO</button>
+      <button class="tab-btn" id="tab3Btn" onclick="setTab(3)" data-i18n="tab_key">TECLADO</button>
+      <button class="tab-btn" id="tab4Btn" onclick="setTab(4)" data-i18n="tab_dec">DECODER</button>
+      <button class="tab-btn" id="tab5Btn" onclick="setTab(5)" data-i18n="tab_cfg">⚙ CONFIG</button>
     </div>
 
     <div id="tab1">
       <div class="section">
-        <label>LISTA DE PALABRAS / ENTRENAMIENTO:</label>
+        <label data-i18n="list_title">LISTA DE PALABRAS / ENTRENAMIENTO:</label>
         <textarea id="listInput" rows="2">CQ QRM QTH 73 RST 5NN DX YV4AA</textarea>
         <div class="btn-group">
-          <button class="btn-sec" onclick="loadList()">📥 CARGAR</button>
+          <button class="btn-sec" onclick="loadList()" data-i18n="list_load">📥 CARGAR</button>
           <button class="btn-sec" onclick="toggleBlind()" id="blindBtn">👁 OCULTO: OFF</button>
         </div>
       </div>
       <div class="flashcard">
-        <div class="word-text" id="displayWord">LISTO</div>
+        <div class="word-text" id="displayWord" data-i18n="list_ready">LISTO</div>
         <div class="word-count" id="displayCount">0 de 0</div>
       </div>
       <div class="section">
-        <label>PAUSA AUTO: <span class="val-display" id="pauseVal">2.0 s</span></label>
+        <label data-i18n="list_pause">PAUSA AUTO: <span class="val-display" id="pauseVal">2.0 s</span></label>
         <input type="range" id="pauseSlider" min="0.5" max="5.0" step="0.5" value="2.0" oninput="document.getElementById('pauseVal').innerText=this.value+' s'">
         <label class="checkbox-container">
           <input type="checkbox" id="autoNavPlay">
-          Auto-reproducir al avanzar/retroceder
+          <span data-i18n="list_autonav">Auto-reproducir al avanzar/retroceder</span>
         </label>
         <label class="checkbox-container">
           <input type="checkbox" id="shufflePlay" onchange="toggleShuffle()">
-          🔀 Reproducir aleatoriamente
+          <span data-i18n="list_shuffle">🔀 Reproducir aleatoriamente</span>
         </label>
       </div>
       <div class="btn-group-3">
-        <button class="btn-sec" onclick="prevWord()">⏮ Ant</button>
-        <button class="btn-play" onclick="repeatWord()">▶ / 🔁 Play</button>
-        <button class="btn-sec" onclick="nextWord()">Sig ⏭</button>
+        <button class="btn-sec" onclick="prevWord()" data-i18n="list_prev">⏮ Ant</button>
+        <button class="btn-play" onclick="repeatWord()" data-i18n="list_play">▶ / 🔁 Play</button>
+        <button class="btn-sec" onclick="nextWord()" data-i18n="list_next">Sig ⏭</button>
       </div>
       <div class="btn-group" style="margin-top: 8px;">
-        <button class="btn-play" id="autoBtn" onclick="toggleAutoPlay()">⏯ AUTO-PLAY</button>
-        <button class="btn-stop" onclick="stopAudio()">⏹ PARAR</button>
+        <button class="btn-play" id="autoBtn" onclick="toggleAutoPlay()" data-i18n="list_autoplay">⏯ AUTO-PLAY</button>
+        <button class="btn-stop" onclick="stopAudio()" data-i18n="list_stop">⏹ PARAR</button>
       </div>
     </div>
 
     <div id="tab2" style="display: none;">
       <div class="section">
-        <label>MENSAJE LIBRE / QSO:</label>
+        <label data-i18n="text_title">MENSAJE LIBRE / QSO:</label>
         <textarea id="msgText" rows="4">CQ CQ CQ DE YV4AA K</textarea>
         <div class="btn-group">
-          <button class="btn-play" onclick="sendContinuous()">▶ TRANSMITIR</button>
-          <button class="btn-stop" onclick="stopAudio()">⏹ DETENER</button>
+          <button class="btn-play" onclick="sendContinuous()" data-i18n="text_send">▶ TRANSMITIR</button>
+          <button class="btn-stop" onclick="stopAudio()" data-i18n="text_stop">⏹ DETENER</button>
         </div>
         <div class="btn-group">
           <button class="btn-sec" onclick="setPreset('CQ CQ CQ DE YV4AA K')">PRESET CQ</button>
@@ -146,28 +147,28 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     </div>
 
     <div id="tab3" style="display: none;">
-      <label>TECLADO MORSE DIRECTO:</label>
+      <label data-i18n="key_title">TECLADO MORSE DIRECTO:</label>
       <div class="key-grid" id="cwKeyboard"></div>
       <div style="margin-top: 10px;">
-        <button class="btn-stop" style="width: 100%;" onclick="stopAudio()">⏹ DETENER TONO</button>
+        <button class="btn-stop" style="width: 100%;" onclick="stopAudio()" data-i18n="key_stop">⏹ DETENER TONO</button>
       </div>
     </div>
 
     <div id="tab4" style="display: none;">
       <div class="section">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <label style="margin: 0;">DECODIFICADOR EN VIVO:</label>
+          <label style="margin: 0;" data-i18n="dec_title">DECODIFICADOR EN VIVO:</label>
           <div style="display: flex; gap: 8px; align-items: center;">
             <div class="stats-badge">🎯 Timing: <span id="liveTiming">--</span>%</div>
-            <div class="stats-badge">Velocidad: <span id="liveWpm">--</span> WPM</div>
+            <div class="stats-badge"><span data-i18n="dec_speed">Velocidad</span>: <span id="liveWpm">--</span> WPM</div>
           </div>
         </div>
         <div class="terminal-box" id="decoderBox">
-          <span id="decodedText">Esperando manipulación...</span><span class="cursor">_</span>
+          <span id="decodedText" data-i18n="dec_waiting">Esperando manipulación...</span><span class="cursor">_</span>
         </div>
         <div class="btn-group" style="margin-top: 10px;">
-          <button class="btn-sec" onclick="clearDecoder()">🗑 LIMPIAR</button>
-          <button class="btn-play" onclick="copyDecoderText()">📋 COPIAR</button>
+          <button class="btn-sec" onclick="clearDecoder()" data-i18n="dec_clear">🗑 LIMPIAR</button>
+          <button class="btn-play" onclick="copyDecoderText()" data-i18n="dec_copy">📋 COPIAR</button>
         </div>
         <div style="margin-top: 10px;">
           <button class="btn-sec" style="width: 100%;" onclick="toggleBlindLegend()" id="legendBlindBtn">👁 OCULTO: OFF</button>
@@ -177,48 +178,121 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     </div>
 
     <div id="tab5" style="display: none;">
-      <div class="net-box" id="netStatusBox">Estado de Red: Consultando...</div>
+      <div class="net-box" id="netStatusBox"><span data-i18n="cfg_netcheck">Estado de Red: Consultando...</span></div>
       
       <div class="section">
-        <label>VELOCIDAD: <span class="val-display" id="wpmVal">15 WPM</span></label>
+        <label data-i18n="cfg_speed">VELOCIDAD: <span class="val-display" id="wpmVal">15 WPM</span></label>
         <input type="range" id="wpmSlider" min="5" max="40" value="15" oninput="updateWPM(this.value)">
       </div>
       <div class="section">
-        <label>FRECUENCIA DE TONO: <span class="val-display" id="freqVal">700 Hz</span></label>
+        <label data-i18n="cfg_tone">FRECUENCIA DE TONO: <span class="val-display" id="freqVal">700 Hz</span></label>
         <input type="range" id="freqSlider" min="400" max="1000" step="25" value="700" oninput="updateFreq(this.value)">
       </div>
       <div class="section">
-        <label>VOLUMEN: <span class="val-display" id="volVal">80%</span></label>
+        <label data-i18n="cfg_vol">VOLUMEN: <span class="val-display" id="volVal">80%</span></label>
         <input type="range" id="volSlider" min="0" max="100" value="80" oninput="updateVol(this.value)">
       </div>
 
       <div class="section" style="margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px;">
-        <label>REDES WI-FI DISPONIBLES:</label>
+        <label data-i18n="cfg_wifi">REDES WI-FI DISPONIBLES:</label>
         <div class="btn-group">
-          <button class="btn-sec" onclick="scanWiFi()">🔍 ESCANEAR</button>
+          <button class="btn-sec" onclick="scanWiFi()" data-i18n="cfg_scan">🔍 ESCANEAR</button>
           <select id="scannedNetworks" onchange="document.getElementById('cfgSSID').value=this.value">
-            <option value="">-- Redes detectadas --</option>
+            <option value="" data-i18n="cfg_selnet">-- Redes detectadas --</option>
           </select>
         </div>
       </div>
       <div class="section">
-        <label>SSID WI-FI:</label>
+        <label data-i18n="cfg_ssid">SSID WI-FI:</label>
         <input type="text" id="cfgSSID" placeholder="Nombre de red">
       </div>
       <div class="section">
-        <label>CONTRASEÑA WI-FI:</label>
+        <label data-i18n="cfg_pass">CONTRASEÑA WI-FI:</label>
         <input type="password" id="cfgPass" placeholder="••••••••">
       </div>
       <div class="btn-group">
-        <button class="btn-play" onclick="saveConfig()">💾 GUARDAR</button>
-        <button class="btn-del" onclick="clearWiFi()">🗑 OLVIDAR</button>
+        <button class="btn-play" onclick="saveConfig()" data-i18n="cfg_save">💾 GUARDAR</button>
+        <button class="btn-del" onclick="clearWiFi()" data-i18n="cfg_forget">🗑 OLVIDAR</button>
       </div>
     </div>
 
-    <div class="status" id="status">Listo | Modo Dark Activo</div>
+    <div class="status" id="status" data-i18n="status_ready">Listo | Modo Dark Activo</div>
   </div>
 
   <script>
+    // ===================== I18N =====================
+    let lang = 'es';
+    const I18N = {
+      es: {
+        tab_list: 'LISTA', tab_text: 'TEXTO', tab_key: 'TECLADO', tab_dec: 'DECODER', tab_cfg: '⚙ CONFIG',
+        list_title: 'LISTA DE PALABRAS / ENTRENAMIENTO:', list_load: '📥 CARGAR', list_ready: 'LISTO',
+        list_pause: 'PAUSA AUTO:', list_autonav: 'Auto-reproducir al avanzar/retroceder', list_shuffle: '🔀 Reproducir aleatoriamente',
+        list_prev: '⏮ Ant', list_play: '▶ / 🔁 Play', list_next: 'Sig ⏭', list_autoplay: '⏯ AUTO-PLAY', list_stop: '⏹ PARAR',
+        text_title: 'MENSAJE LIBRE / QSO:', text_send: '▶ TRANSMITIR', text_stop: '⏹ DETENER',
+        key_title: 'TECLADO MORSE DIRECTO:', key_stop: '⏹ DETENER TONO',
+        dec_title: 'DECODIFICADOR EN VIVO:', dec_speed: 'Velocidad', dec_waiting: 'Esperando manipulación...',
+        dec_clear: '🗑 LIMPIAR', dec_copy: '📋 COPIAR',
+        cfg_netcheck: 'Estado de Red: Consultando...', cfg_speed: 'VELOCIDAD:', cfg_tone: 'FRECUENCIA DE TONO:', cfg_vol: 'VOLUMEN:',
+        cfg_wifi: 'REDES WI-FI DISPONIBLES:', cfg_scan: '🔍 ESCANEAR', cfg_selnet: '-- Redes detectadas --',
+        cfg_ssid: 'SSID WI-FI:', cfg_pass: 'CONTRASEÑA WI-FI:', cfg_save: '💾 GUARDAR', cfg_forget: '🗑 OLVIDAR',
+        status_ready: 'Listo | Modo Dark Activo',
+        blind_on: '👁 OCULTO: ON', blind_off: '👁 OCULTO: OFF',
+        s_transmitting: 'Transmitiendo...', s_ready: 'Listo', s_stopped: 'Detenido',
+        s_loaded: 'Lista cargada', s_shuffle_on: '🔀 Modo aleatorio: ON', s_shuffle_off: '🔀 Modo aleatorio: OFF',
+        s_playing: 'Reproduciendo...', s_scanning: 'Escaneando redes Wi-Fi...', s_scan_done: 'Escaneo listo',
+        s_scan_err: 'Error al escanear redes', s_copied: 'Copiado al portapapeles',
+        s_saving: 'Guardando configuración...', s_saved: 'Guardado. Reconectando...', s_cleared: 'Red eliminada',
+        s_ssid_req: 'Ingresa o selecciona un SSID', s_forget_confirm: '¿Olvidar red Wi-Fi y operar únicamente en modo AP?',
+        w_words: 'palabras', w_networks: 'redes'
+      },
+      en: {
+        tab_list: 'LIST', tab_text: 'TEXT', tab_key: 'KEYBOARD', tab_dec: 'DECODER', tab_cfg: '⚙ CONFIG',
+        list_title: 'WORD LIST / TRAINING:', list_load: '📥 LOAD', list_ready: 'READY',
+        list_pause: 'AUTO PAUSE:', list_autonav: 'Auto-play on next/prev', list_shuffle: '🔀 Shuffle playback',
+        list_prev: '⏮ Prev', list_play: '▶ / 🔁 Play', list_next: 'Next ⏭', list_autoplay: '⏯ AUTO-PLAY', list_stop: '⏹ STOP',
+        text_title: 'FREE TEXT / QSO:', text_send: '▶ SEND', text_stop: '⏹ STOP',
+        key_title: 'DIRECT MORSE KEYBOARD:', key_stop: '⏹ STOP TONE',
+        dec_title: 'LIVE DECODER:', dec_speed: 'Speed', dec_waiting: 'Waiting for keying...',
+        dec_clear: '🗑 CLEAR', dec_copy: '📋 COPY',
+        cfg_netcheck: 'Network Status: Checking...', cfg_speed: 'SPEED:', cfg_tone: 'TONE FREQUENCY:', cfg_vol: 'VOLUME:',
+        cfg_wifi: 'AVAILABLE WI-FI NETWORKS:', cfg_scan: '🔍 SCAN', cfg_selnet: '-- Detected networks --',
+        cfg_ssid: 'WI-FI SSID:', cfg_pass: 'WI-FI PASSWORD:', cfg_save: '💾 SAVE', cfg_forget: '🗑 FORGET',
+        status_ready: 'Ready | Dark Mode Active',
+        blind_on: '👁 HIDDEN: ON', blind_off: '👁 HIDDEN: OFF',
+        s_transmitting: 'Transmitting...', s_ready: 'Ready', s_stopped: 'Stopped',
+        s_loaded: 'List loaded', s_shuffle_on: '🔀 Shuffle: ON', s_shuffle_off: '🔀 Shuffle: OFF',
+        s_playing: 'Playing...', s_scanning: 'Scanning Wi-Fi networks...', s_scan_done: 'Scan complete',
+        s_scan_err: 'Error scanning networks', s_copied: 'Copied to clipboard',
+        s_saving: 'Saving configuration...', s_saved: 'Saved. Reconnecting...', s_cleared: 'Network removed',
+        s_ssid_req: 'Enter or select an SSID', s_forget_confirm: 'Forget Wi-Fi and operate in AP mode only?',
+        w_words: 'words', w_networks: 'networks'
+      }
+    };
+
+    function t(key) { return (I18N[lang] && I18N[lang][key]) ? I18N[lang][key] : key; }
+
+    function applyLang() {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.innerText = t(el.getAttribute('data-i18n'));
+      });
+      document.getElementById('langBtn').innerText = lang === 'es' ? '🌐 EN' : '🌐 ES';
+      updateBlindLabels();
+      const d = document.getElementById('displayWord');
+      if (words.length === 0) d.innerText = t('list_ready');
+    }
+
+    function toggleLang() {
+      lang = (lang === 'es') ? 'en' : 'es';
+      try { localStorage.setItem('cw_lang', lang); } catch(e) {}
+      applyLang();
+      refreshStatus();
+    }
+
+    function updateBlindLabels() {
+      document.getElementById('blindBtn').innerText = blindMode ? t('blind_on') : t('blind_off');
+      document.getElementById('legendBlindBtn').innerText = legendBlind ? t('blind_on') : t('blind_off');
+    }
+
     let words = [], currentIndex = 0, blindMode = false, isAutoPlaying = false, autoTimer = null;
     let shuffleMode = false, playQueue = [], queuePos = 0;   // modo aleatorio (baraja sin repetir)
     let decoderInterval = null;
@@ -300,8 +374,8 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
 
     function sendContinuous() {
       const text = document.getElementById('msgText').value;
-      setStatus('Transmitiendo...', '#3a4ee0');
-      fetch('/play?text=' + encodeURIComponent(text)).then(() => setStatus('Listo', '#8c93a8'));
+      setStatus(t('s_transmitting'), '#3a4ee0');
+      fetch('/play?text=' + encodeURIComponent(text)).then(() => setStatus(t('s_ready'), '#8c93a8'));
     }
     function setPreset(txt) { document.getElementById('msgText').value = txt; sendContinuous(); }
     function playChar(ch) { fetch('/play?text=' + encodeURIComponent(ch)); }
@@ -309,7 +383,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     let legendBlind = false;
     function toggleBlindLegend() {
       legendBlind = !legendBlind;
-      document.getElementById('legendBlindBtn').innerText = '👁 OCULTO: ' + (legendBlind ? 'ON' : 'OFF');
+      updateBlindLabels();
       document.getElementById('morseLegend').classList.toggle('blind-hidden', legendBlind);
     }
 
@@ -327,8 +401,8 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     function stopAudio() {
       isAutoPlaying = false;
       clearTimeout(autoTimer);
-      document.getElementById('autoBtn').innerText = '⏯ AUTO-PLAY';
-      fetch('/stop').then(() => setStatus('Detenido', '#d32f2f'));
+      document.getElementById('autoBtn').innerText = t('list_autoplay');
+      fetch('/stop').then(() => setStatus(t('s_stopped'), '#d32f2f'));
     }
 
     function setStatus(msg, color) {
@@ -343,7 +417,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       currentIndex = 0;
       buildQueue();
       updateCard();
-      setStatus('Lista cargada (' + words.length + ' palabras)', '#7d8eff');
+      setStatus(t('s_loaded') + ' (' + words.length + ' ' + t('w_words') + ')', '#7d8eff');
     }
 
     // Construye la cola de reproducción: orden natural o barajada (sin repetir)
@@ -364,7 +438,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     function toggleShuffle() {
       shuffleMode = document.getElementById('shufflePlay').checked;
       if (words.length > 0 && !isAutoPlaying) buildQueue();
-      setStatus('🔀 Modo aleatorio: ' + (shuffleMode ? 'ON' : 'OFF'), '#7d8eff');
+      setStatus(shuffleMode ? t('s_shuffle_on') : t('s_shuffle_off'), '#7d8eff');
     }
 
     // Avanza a la siguiente palabra (respeta la cola actual)
@@ -382,12 +456,12 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       el.innerText = words[currentIndex];
       el.className = 'word-text ' + (blindMode ? 'blind-hidden' : '');
       const shown = queuePos + 1;
-      document.getElementById('displayCount').innerText = (shuffleMode ? '🔀 ' : '') + shown + ' de ' + words.length;
+      document.getElementById('displayCount').innerText = (shuffleMode ? '🔀 ' : '') + shown + ' / ' + words.length;
     }
 
     function toggleBlind() {
       blindMode = !blindMode;
-      document.getElementById('blindBtn').innerText = '👁 OCULTO: ' + (blindMode ? 'ON' : 'OFF');
+      updateBlindLabels();
       updateCard();
     }
 
@@ -395,10 +469,10 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       if (words.length === 0) loadList();
       updateCard();
       // No revelar la palabra en el status (respeta el modo oculto 👁)
-      setStatus('Reproduciendo...', '#3a4ee0');
+      setStatus(t('s_playing'), '#3a4ee0');
       fetch('/play?text=' + encodeURIComponent(words[currentIndex]))
         .then(() => {
-          setStatus('Listo', '#8c93a8');
+          setStatus(t('s_ready'), '#8c93a8');
           if (onDone) onDone();
         });
     }
@@ -429,7 +503,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       } else {
         if (words.length === 0) loadList();
         isAutoPlaying = true;
-        document.getElementById('autoBtn').innerText = '⏸ PAUSAR';
+        document.getElementById('autoBtn').innerText = '⏸ ' + (lang === 'es' ? 'PAUSAR' : 'PAUSE');
         runAutoLoop();
       }
     }
@@ -458,35 +532,35 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
 
     function clearDecoder() {
       fetch('/clear_decoded').then(() => {
-        document.getElementById('decodedText').innerText = "Esperando manipulación...";
+        document.getElementById('decodedText').innerText = t('dec_waiting');
         document.getElementById('liveWpm').innerText = "--";
       });
     }
 
     function copyDecoderText() {
       const t = document.getElementById('decodedText').innerText;
-      if (t && t !== "Esperando manipulación...") {
+      if (t && t !== I18N.es.dec_waiting && t !== I18N.en.dec_waiting) {
         navigator.clipboard.writeText(t);
-        setStatus("Copiado al portapapeles", "#7d8eff");
+        setStatus(t('s_copied'), "#7d8eff");
       }
     }
 
     function scanWiFi() {
-      setStatus('Escaneando redes Wi-Fi...', '#3a4ee0');
+      setStatus(t('s_scanning'), '#3a4ee0');
       fetch('/scan_wifi')
         .then(res => res.json())
         .then(networks => {
           const sel = document.getElementById('scannedNetworks');
-          sel.innerHTML = '<option value="">-- Selecciona una red --</option>';
+          sel.innerHTML = '<option value="">' + t('cfg_selnet') + '</option>';
           networks.forEach(net => {
             const opt = document.createElement('option');
             opt.value = net.ssid;
             opt.innerText = net.ssid + ' (' + net.rssi + ' dBm)';
             sel.appendChild(opt);
           });
-          setStatus('Escaneo listo (' + networks.length + ' redes)', '#7d8eff');
+          setStatus(t('s_scan_done') + ' (' + networks.length + ' ' + t('w_networks') + ')', '#7d8eff');
         })
-        .catch(() => setStatus('Error al escanear redes', '#d32f2f'));
+        .catch(() => setStatus(t('s_scan_err'), '#d32f2f'));
     }
 
     function refreshStatus() {
@@ -500,27 +574,34 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     function saveConfig() {
       const ssid = document.getElementById('cfgSSID').value;
       const pass = document.getElementById('cfgPass').value;
-      if (!ssid) { alert('Ingresa o selecciona un SSID'); return; }
-      setStatus('Guardando configuración...', '#3a4ee0');
+      if (!ssid) { alert(t('s_ssid_req')); return; }
+      setStatus(t('s_saving'), '#3a4ee0');
       fetch('/save_cfg?ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass))
         .then(() => {
-          setStatus('Guardado. Reconectando...', '#7d8eff');
+          setStatus(t('s_saved'), '#7d8eff');
           setTimeout(refreshStatus, 3000);
         });
     }
 
     function clearWiFi() {
-      if (confirm('¿Olvidar red Wi-Fi y operar únicamente en modo AP?')) {
+      if (confirm(t('s_forget_confirm'))) {
         fetch('/clear_wifi').then(() => {
           document.getElementById('cfgSSID').value = '';
           document.getElementById('cfgPass').value = '';
-          setStatus('Red eliminada', '#d32f2f');
+          setStatus(t('s_cleared'), '#d32f2f');
           setTimeout(refreshStatus, 1500);
         });
       }
     }
 
     window.onload = () => {
+      // Idioma: preferencia guardada > idioma del navegador > español
+      try {
+        const saved = localStorage.getItem('cw_lang');
+        if (saved === 'en' || saved === 'es') lang = saved;
+        else lang = (navigator.language || 'es').toLowerCase().startsWith('es') ? 'es' : 'en';
+      } catch(e) {}
+      applyLang();
       initKeyboard();
       loadList();
       refreshStatus();
