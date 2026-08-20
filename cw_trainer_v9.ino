@@ -65,8 +65,7 @@
 // ==========================================
 #define AUDIO_PIN   25  // Buzzer o salida PWM
 #define LED_PIN     27  // LED indicador
-#define KEY_DOT     18  // Entrada Dit / Llave recta
-#define KEY_DASH    19  // Entrada Dash
+#define KEY_DOT     18  // Entrada Dit / Llave recta (única entrada en v11)
 
 // ==========================================
 // PARÁMETROS DE AUDIO / MORSE
@@ -106,7 +105,7 @@ bool          wordPending    = false;
 int           charsInWord    = 0;       // chars desde el último espacio
 
 // Historial de elementos para mediana robusta (inmune a outliers)
-struct ElemRec { uint32_t dur; bool isDah; bool clean; uint32_t gapAfter; };
+struct ElemRec { uint32_t dur; bool isDah; bool clean; };
 ElemRec elemHist[ELEM_HIST_LEN];
 int elemHistHead  = 0;
 int elemHistCount = 0;
@@ -121,7 +120,6 @@ int slowStreak = 0;
 // Velocidad por MEDIANA (ms), inicializada a 15 WPM
 float medianDitMs = 80.0f;    // mediana de dits recientes
 float medianDahMs = 240.0f;   // mediana de dahs recientes
-float medianGapMs = 80.0f;    // mediana de gaps inter-elemento (≈1 dit)
 
 // Árbol binario Morse (128 nodos: soporta códigos de hasta 6 elementos)
 // Índice 1 = Raíz. Si Dit -> 2*i. Si Dah -> 2*i + 1
@@ -299,8 +297,8 @@ void appendDecoded(char c) {
 }
 
 // ---- Utilidades de mediana (robustas a outliers) ----
-void addElemHist(uint32_t dur, bool isDah, bool clean, uint32_t gapAfter) {
-  elemHist[elemHistHead] = {dur, isDah, clean, gapAfter};
+void addElemHist(uint32_t dur, bool isDah, bool clean) {
+  elemHist[elemHistHead] = {dur, isDah, clean};
   elemHistHead = (elemHistHead + 1) % ELEM_HIST_LEN;
   if (elemHistCount < ELEM_HIST_LEN) elemHistCount++;
 }
@@ -440,7 +438,6 @@ void processRobustDecoder() {
   else if (!currentPinState && keyIsActive) {
     soundAndLightOff();
     unsigned long duration = now - pressStartMs;
-    unsigned long gapBefore = (lastReleaseMs > 0) ? (pressStartMs - lastReleaseMs) : 0;
     lastReleaseMs = now;
     keyIsActive = false;
 
@@ -470,7 +467,7 @@ void processRobustDecoder() {
     }
 
     // Guardar en historial + carácter en curso
-    addElemHist(duration, isDah, clean, gapBefore);
+    addElemHist(duration, isDah, clean);
     if (curCodeLen < 8) curCode[curCodeLen++] = isDah ? 1 : 0;
     if (treeIndex < 128) treeIndex = treeIndex * 2 + (isDah ? 1 : 0);
 
@@ -492,8 +489,8 @@ void processRobustDecoder() {
     float silenceMs = (float)(now - lastReleaseMs);
 
     // Umbrales por estructura morse: gap elemento ≈ 1 dit, char ≈ 3, palabra ≈ 7
-    float charEndMs  = max(medianDitMs * 2.5f, medianDitMs * 1.8f);  // ~2.5 dits
-    float wordEndMs  = max(medianDitMs * 5.5f, medianDitMs * 4.0f);  // ~5.5 dits
+    float charEndMs  = medianDitMs * 2.5f;  // ~2.5 dits
+    float wordEndMs  = medianDitMs * 5.5f;  // ~5.5 dits
 
     // Fin de carácter
     if (charPending && silenceMs >= charEndMs) {
@@ -612,6 +609,8 @@ void handleSetVol() {
 void handlePlay() {
   if (server.hasArg("text")) {
     String text = server.arg("text");
+    // Límite de seguridad: texto máximo de reproducción (evita abusos)
+    if (text.length() > 500) text = text.substring(0, 500);
     // Respond AFTER playback finishes so the frontend (auto-play)
     // applies the PAUSA AUTO slider at the right moment.
     // Responder DESPUÉS de reproducir. Así el frontend (auto-play)
@@ -632,7 +631,12 @@ void handleStop() {
 void handleGetStatus() {
   String statusHtml = "";
   if (WiFi.status() == WL_CONNECTED) {
-    statusHtml = "🟢 Conectado a: <b>" + WiFi.SSID() + "</b> (IP: " + WiFi.localIP().toString() + ")";
+    String ssid = WiFi.SSID();
+    ssid.replace("&", "&amp;");
+    ssid.replace("<", "&lt;");
+    ssid.replace(">", "&gt;");
+    ssid.replace("\"", "&quot;");
+    statusHtml = "🟢 Conectado a: <b>" + ssid + "</b> (IP: " + WiFi.localIP().toString() + ")";
   } else {
     statusHtml = "🔵 Modo AP Activo (SSID: <b>" + String(ap_ssid_default) + "</b> | IP: 192.168.4.1)";
   }
@@ -644,7 +648,10 @@ void handleScanWiFi() {
   String json = "[";
   for (int i = 0; i < n; ++i) {
     if (i > 0) json += ",";
-    json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    String ssid = WiFi.SSID(i);
+    ssid.replace("\\", "\\\\");
+    ssid.replace("\"", "\\\"");
+    json += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
   }
   json += "]";
   server.send(200, "application/json", json);
@@ -654,10 +661,12 @@ void handleSaveConfig() {
   prefs.begin("cw_config", false);
   if (server.hasArg("ssid")) {
     sta_ssid = server.arg("ssid");
+    if (sta_ssid.length() > 32) sta_ssid = sta_ssid.substring(0, 32);  // límite WPA
     prefs.putString("ssid", sta_ssid);
   }
   if (server.hasArg("pass")) {
     sta_password = server.arg("pass");
+    if (sta_password.length() > 64) sta_password = sta_password.substring(0, 64);  // límite WPA2
     prefs.putString("pass", sta_password);
   }
   prefs.end();
@@ -700,11 +709,10 @@ void setup() {
   // NVS WPM (which is playback-only). Self-adaptive from real keying.
   // El decoder SIEMPRE arranca en 15 WPM, independiente del
   // WPM guardado en NVS (que es solo de reproducción).
-  // Median-based initial speed (dit=80ms, dah=240ms, gap=80ms)
-  // Medianas iniciales a 15 WPM (dit=80ms, dah=240ms, gap=80ms)
+  // Median-based initial speed (dit=80ms, dah=240ms)
+  // Medianas iniciales a 15 WPM (dit=80ms, dah=240ms)
   medianDitMs = 80.0f;
   medianDahMs = 240.0f;
-  medianGapMs = 80.0f;
   elemHistCount = 0;
   elemHistHead = 0;
   curCodeLen = 0;
@@ -724,7 +732,6 @@ void setup() {
   #endif
 
   pinMode(KEY_DOT, INPUT_PULLUP);
-  pinMode(KEY_DASH, INPUT_PULLUP);
 
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(ap_ip, ap_gw, ap_mask);
@@ -779,7 +786,6 @@ void setup() {
     slowStreak = 0;
     medianDitMs = 80.0f;
     medianDahMs = 240.0f;
-    medianGapMs = 80.0f;
     liveCalculatedWpm = 0;
     liveTimingPct = 100;
     server.send(200, "text/plain", "OK");
@@ -799,7 +805,7 @@ void setup() {
   });
 
   server.begin();
-  Serial.println("\n[OK] CW Trainer & Robust Power-Decoder Activo (v10)");
+  Serial.println("\n[OK] CW Trainer & Robust Power-Decoder Activo (v11.2)");
 }
 
 // ==========================================
