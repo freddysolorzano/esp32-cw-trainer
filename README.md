@@ -3,12 +3,21 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform: ESP32](https://img.shields.io/badge/Platform-ESP32-blue.svg)](https://www.espressif.com/)
 [![Arduino Core](https://img.shields.io/badge/Arduino%20Core-2.0.6-green.svg)](https://github.com/espressif/arduino-esp32)
+[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#)
+
+> ⚠️ **BETA / EN FASE BETA** — This project is under active development. The firmware is functional and tested, but APIs, thresholds and features may change. **Electronic component specifications (BOM, schematic, PCB) will be published soon.** / Este proyecto está en desarrollo activo. El firmware es funcional y probado, pero las APIs, umbrales y funciones pueden cambiar. **Próximamente se publicarán las especificaciones de componentes electrónicos (BOM, esquemático, PCB).**
+
+---
 
 **Morse code trainer + real-time adaptive decoder** for the Radio Club Venezolano — Casa Regional Maracay (YV4AA).
 
 **Entrenador de código Morse + decodificador adaptativo en tiempo real** para el Radio Club Venezolano — Casa Regional Maracay (YV4AA).
 
 ---
+
+### 📸 Web UI / Interfaz web
+
+<img src="screenshots/web-ui.png" alt="CW Trainer Web UI" width="320">
 
 ## 🇬🇧 English
 
