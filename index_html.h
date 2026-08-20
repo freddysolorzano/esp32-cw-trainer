@@ -1,0 +1,547 @@
+#ifndef INDEX_HTML_H
+#define INDEX_HTML_H
+
+const char PAGE_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RCV YV4AA - CW Trainer & Decoder</title>
+  <style>
+    :root {
+      --primary: #1f2fae;
+      --primary-dark: #152970;
+      --accent: #3a4ee0;
+      --danger: #d32f2f;
+      --bg: #0d0e12;
+      --card: #16181f;
+      --subtle: #222531;
+      --border: #2e3447;
+      --text: #f0f2f5;
+      --text-muted: #8c93a8;
+      --term-green: #4ade80;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 12px; display: flex; justify-content: center; }
+    .card { background: var(--card); padding: 18px; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); border: 1px solid var(--border); }
+    
+    .header { text-align: center; margin-bottom: 14px; background: linear-gradient(135deg, var(--primary-dark), var(--primary)); padding: 14px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .logo-img { width: 68px; height: 68px; margin-bottom: 8px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4)); }
+    .header h1 { font-size: 1.05rem; color: #FFF; letter-spacing: 0.5px; }
+    .sub-title { font-size: 0.75rem; color: #a4b1ff; font-weight: bold; margin-top: 2px; }
+    
+    .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 14px; background: var(--subtle); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
+    .tab-btn { background: transparent; border: none; color: var(--text-muted); padding: 8px 2px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 0.68rem; transition: 0.2s; }
+    .tab-btn.active { background: var(--primary); color: #FFF; box-shadow: 0 2px 8px rgba(31, 47, 174, 0.5); }
+    
+    .section { margin-bottom: 12px; }
+    label { font-size: 0.75rem; font-weight: bold; color: var(--text-muted); display: block; margin-bottom: 5px; }
+    input[type=range] { width: 100%; height: 6px; background: var(--subtle); border-radius: 4px; accent-color: var(--accent); margin: 6px 0; }
+    .val-display { float: right; color: #a4b1ff; font-weight: bold; }
+    input[type=text], input[type=password], select, textarea { width: 100%; background: var(--subtle); border: 1px solid var(--border); border-radius: 8px; color: #FFF; padding: 9px; font-size: 0.85rem; outline: none; }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+    
+    .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .btn-group-3 { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 6px; margin-top: 8px; }
+    button { color: #FFF; border: none; padding: 10px; font-size: 0.82rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.15s; }
+    button:active { transform: scale(0.97); }
+    .btn-play { background: linear-gradient(135deg, var(--primary), var(--accent)); }
+    .btn-stop { background: var(--danger); }
+    .btn-sec { background: var(--subtle); border: 1px solid var(--border); color: #d1d5db; }
+    .btn-del { background: #5c1414; border: 1px solid #8b1f1f; color: #ffb4b4; }
+    
+    .flashcard { background: #08090c; border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; margin: 10px 0; min-height: 48px; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+    .word-text { font-size: 1.7rem; font-weight: 800; color: #FFF; letter-spacing: 2px; }
+    .word-count { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+    .blind-hidden { filter: blur(8px); user-select: none; }
+    
+    .terminal-box { background: #08090c; border: 1px solid var(--primary); border-radius: 8px; padding: 12px; min-height: 90px; max-height: 150px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 1rem; font-weight: bold; color: var(--term-green); word-break: break-word; text-align: left; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); }
+    .cursor { animation: blink 1s infinite; }
+    @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+    
+    .stats-badge { display: inline-flex; align-items: center; gap: 6px; background: var(--subtle); border: 1px solid var(--border); padding: 5px 10px; border-radius: 6px; font-size: 0.75rem; color: #a4b1ff; font-weight: bold; }
+    .stats-badge span { color: var(--term-green); font-size: 0.85rem; }
+
+    .net-box { background: #08090c; border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 0.8rem; color: #a4b1ff; }
+    .key-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-top: 8px; }
+    .cw-key { background: var(--subtle); border: 1px solid var(--border); color: #FFF; padding: 9px 0; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.85rem; }
+    .cw-key span { font-size: 0.6rem; color: var(--text-muted); margin-top: 2px; font-family: monospace; }
+    .cw-key:active { background: var(--primary); }
+    
+    .checkbox-container { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.78rem; color: #d1d5db; cursor: pointer; }
+    .checkbox-container input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+    .morse-legend { background: #08090c; border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 10px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 12px; font-size: 0.72rem; }
+    .morse-legend .lg-item { display: flex; justify-content: space-between; align-items: center; color: #d1d5db; padding: 2px 4px; border-radius: 4px; }
+    .morse-legend .lg-item b { color: #FFF; }
+    .morse-legend .lg-item span { font-family: monospace; color: var(--term-green); letter-spacing: 1px; }
+    .status { text-align: center; font-size: 0.75rem; color: var(--text-muted); margin-top: 14px; padding-top: 8px; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <img src="/logo.svg" alt="Logo RCV" style="width: 68px; height: 68px; margin-bottom: 8px;">
+      <h1>RADIO CLUB VENEZOLANO</h1>
+      <div class="sub-title">CASA REGIONAL MARACAY • YV4AA</div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tab1Btn" onclick="setTab(1)">LISTA</button>
+      <button class="tab-btn" id="tab2Btn" onclick="setTab(2)">TEXTO</button>
+      <button class="tab-btn" id="tab3Btn" onclick="setTab(3)">TECLADO</button>
+      <button class="tab-btn" id="tab4Btn" onclick="setTab(4)">DECODER</button>
+      <button class="tab-btn" id="tab5Btn" onclick="setTab(5)">⚙ CONFIG</button>
+    </div>
+
+    <div id="tab1">
+      <div class="section">
+        <label>LISTA DE PALABRAS / ENTRENAMIENTO:</label>
+        <textarea id="listInput" rows="2">CQ QRM QTH 73 RST 5NN DX YV4AA</textarea>
+        <div class="btn-group">
+          <button class="btn-sec" onclick="loadList()">📥 CARGAR</button>
+          <button class="btn-sec" onclick="toggleBlind()" id="blindBtn">👁 OCULTO: OFF</button>
+        </div>
+      </div>
+      <div class="flashcard">
+        <div class="word-text" id="displayWord">LISTO</div>
+        <div class="word-count" id="displayCount">0 de 0</div>
+      </div>
+      <div class="section">
+        <label>PAUSA AUTO: <span class="val-display" id="pauseVal">2.0 s</span></label>
+        <input type="range" id="pauseSlider" min="0.5" max="5.0" step="0.5" value="2.0" oninput="document.getElementById('pauseVal').innerText=this.value+' s'">
+        <label class="checkbox-container">
+          <input type="checkbox" id="autoNavPlay">
+          Auto-reproducir al avanzar/retroceder
+        </label>
+        <label class="checkbox-container">
+          <input type="checkbox" id="shufflePlay" onchange="toggleShuffle()">
+          🔀 Reproducir aleatoriamente
+        </label>
+      </div>
+      <div class="btn-group-3">
+        <button class="btn-sec" onclick="prevWord()">⏮ Ant</button>
+        <button class="btn-play" onclick="repeatWord()">▶ / 🔁 Play</button>
+        <button class="btn-sec" onclick="nextWord()">Sig ⏭</button>
+      </div>
+      <div class="btn-group" style="margin-top: 8px;">
+        <button class="btn-play" id="autoBtn" onclick="toggleAutoPlay()">⏯ AUTO-PLAY</button>
+        <button class="btn-stop" onclick="stopAudio()">⏹ PARAR</button>
+      </div>
+    </div>
+
+    <div id="tab2" style="display: none;">
+      <div class="section">
+        <label>MENSAJE LIBRE / QSO:</label>
+        <textarea id="msgText" rows="4">CQ CQ CQ DE YV4AA K</textarea>
+        <div class="btn-group">
+          <button class="btn-play" onclick="sendContinuous()">▶ TRANSMITIR</button>
+          <button class="btn-stop" onclick="stopAudio()">⏹ DETENER</button>
+        </div>
+        <div class="btn-group">
+          <button class="btn-sec" onclick="setPreset('CQ CQ CQ DE YV4AA K')">PRESET CQ</button>
+          <button class="btn-sec" onclick="setPreset('73 DE YV4AA SK')">PRESET 73</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab3" style="display: none;">
+      <label>TECLADO MORSE DIRECTO:</label>
+      <div class="key-grid" id="cwKeyboard"></div>
+      <div style="margin-top: 10px;">
+        <button class="btn-stop" style="width: 100%;" onclick="stopAudio()">⏹ DETENER TONO</button>
+      </div>
+    </div>
+
+    <div id="tab4" style="display: none;">
+      <div class="section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="margin: 0;">DECODIFICADOR EN VIVO:</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <div class="stats-badge">🎯 Timing: <span id="liveTiming">--</span>%</div>
+            <div class="stats-badge">Velocidad: <span id="liveWpm">--</span> WPM</div>
+          </div>
+        </div>
+        <div class="terminal-box" id="decoderBox">
+          <span id="decodedText">Esperando manipulación...</span><span class="cursor">_</span>
+        </div>
+        <div class="btn-group" style="margin-top: 10px;">
+          <button class="btn-sec" onclick="clearDecoder()">🗑 LIMPIAR</button>
+          <button class="btn-play" onclick="copyDecoderText()">📋 COPIAR</button>
+        </div>
+        <div style="margin-top: 10px;">
+          <button class="btn-sec" style="width: 100%;" onclick="toggleBlindLegend()" id="legendBlindBtn">👁 OCULTO: OFF</button>
+        </div>
+        <div class="morse-legend" id="morseLegend"></div>
+      </div>
+    </div>
+
+    <div id="tab5" style="display: none;">
+      <div class="net-box" id="netStatusBox">Estado de Red: Consultando...</div>
+      
+      <div class="section">
+        <label>VELOCIDAD: <span class="val-display" id="wpmVal">15 WPM</span></label>
+        <input type="range" id="wpmSlider" min="5" max="40" value="15" oninput="updateWPM(this.value)">
+      </div>
+      <div class="section">
+        <label>FRECUENCIA DE TONO: <span class="val-display" id="freqVal">700 Hz</span></label>
+        <input type="range" id="freqSlider" min="400" max="1000" step="25" value="700" oninput="updateFreq(this.value)">
+      </div>
+      <div class="section">
+        <label>VOLUMEN: <span class="val-display" id="volVal">80%</span></label>
+        <input type="range" id="volSlider" min="0" max="100" value="80" oninput="updateVol(this.value)">
+      </div>
+
+      <div class="section" style="margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px;">
+        <label>REDES WI-FI DISPONIBLES:</label>
+        <div class="btn-group">
+          <button class="btn-sec" onclick="scanWiFi()">🔍 ESCANEAR</button>
+          <select id="scannedNetworks" onchange="document.getElementById('cfgSSID').value=this.value">
+            <option value="">-- Redes detectadas --</option>
+          </select>
+        </div>
+      </div>
+      <div class="section">
+        <label>SSID WI-FI:</label>
+        <input type="text" id="cfgSSID" placeholder="Nombre de red">
+      </div>
+      <div class="section">
+        <label>CONTRASEÑA WI-FI:</label>
+        <input type="password" id="cfgPass" placeholder="••••••••">
+      </div>
+      <div class="btn-group">
+        <button class="btn-play" onclick="saveConfig()">💾 GUARDAR</button>
+        <button class="btn-del" onclick="clearWiFi()">🗑 OLVIDAR</button>
+      </div>
+    </div>
+
+    <div class="status" id="status">Listo | Modo Dark Activo</div>
+  </div>
+
+  <script>
+    let words = [], currentIndex = 0, blindMode = false, isAutoPlaying = false, autoTimer = null;
+    let shuffleMode = false, playQueue = [], queuePos = 0;   // modo aleatorio (baraja sin repetir)
+    let decoderInterval = null;
+
+    const morseChars = [
+      {c:'A',m:'.-'},{c:'B',m:'-...'},{c:'C',m:'-.-.'},{c:'D',m:'-..'},{c:'E',m:'.'},{c:'F',m:'..-.'},
+      {c:'G',m:'--.'},{c:'H',m:'....'},{c:'I',m:'..'},{c:'J',m:'.---'},{c:'K',m:'-.-'},{c:'L',m:'.-..'},
+      {c:'M',m:'--'},{c:'N',m:'-.'},{c:'O',m:'---'},{c:'P',m:'.--.'},{c:'Q',m:'--.-'},{c:'R',m:'.-.'},
+      {c:'S',m:'...'},{c:'T',m:'-'},{c:'U',m:'..-'},{c:'V',m:'...-'},{c:'W',m:'.--'},{c:'X',m:'-..-'},
+      {c:'Y',m:'-.--'},{c:'Z',m:'--..'},{c:'1',m:'.----'},{c:'2',m:'..---'},{c:'3',m:'...--'},{c:'4',m:'....-'},
+      {c:'5',m:'.....'},{c:'6',m:'-....'},{c:'7',m:'--...'},{c:'8',m:'---..'},{c:'9',m:'----.'},{c:'0',m:'-----'},
+      {c:'?',m:'..--..'},{c:'/',m:'-..-.'},{c:'=',m:'-...-'},{c:',',m:'--..--'},{c:'.',m:'.-.-.-'},{c:'SK',m:'...-.-'}
+    ];
+
+    function initKeyboard() {
+      const grid = document.getElementById('cwKeyboard');
+      grid.innerHTML = '';
+      morseChars.forEach(item => {
+        const btn = document.createElement('div');
+        btn.className = 'cw-key';
+        btn.innerHTML = `${item.c}<span>${item.m}</span>`;
+        btn.onclick = () => playChar(item.c);
+        grid.appendChild(btn);
+      });
+    }
+
+    function setTab(num) {
+      for(let i=1; i<=5; i++) {
+        document.getElementById('tab'+i).style.display = (num === i) ? 'block' : 'none';
+        document.getElementById('tab'+i+'Btn').className = 'tab-btn ' + ((num === i) ? 'active' : '');
+      }
+      stopAudio();
+
+      if (num === 4) {
+        fetch('/set_decoder?state=1');
+        startDecoderPolling();
+      } else {
+        stopDecoderPolling();
+        fetch('/set_decoder?state=0');
+      }
+
+      if(num === 5) refreshStatus();
+    }
+
+    function startDecoderPolling() {
+      if (decoderInterval) clearInterval(decoderInterval);
+      decoderInterval = setInterval(() => {
+        fetch('/get_decoded')
+          .then(r => r.json())
+          .then(d => {
+            const box = document.getElementById('decodedText');
+            if (d.text && d.text.length > 0) {
+              box.innerText = d.text;
+            } else {
+              box.innerText = "Esperando manipulación...";
+            }
+            if (d.wpm !== undefined) {
+              document.getElementById('liveWpm').innerText = d.wpm > 0 ? d.wpm : '--';
+            }
+            if (d.timing !== undefined) {
+              const t = document.getElementById('liveTiming');
+              t.innerText = d.timing;
+              t.style.color = d.timing >= 80 ? '#2ecc71' : (d.timing >= 50 ? '#f1c40f' : '#e74c3c');
+            }
+          }).catch(() => {});
+      }, 250);
+    }
+
+    function stopDecoderPolling() {
+      if (decoderInterval) {
+        clearInterval(decoderInterval);
+        decoderInterval = null;
+      }
+    }
+
+    function updateWPM(val) { document.getElementById('wpmVal').innerText = val + ' WPM'; fetch('/set_wpm?val=' + val); }
+    function updateFreq(val) { document.getElementById('freqVal').innerText = val + ' Hz'; fetch('/set_freq?val=' + val); }
+    function updateVol(val) { document.getElementById('volVal').innerText = val + '%'; fetch('/set_vol?val=' + val); }
+
+    function sendContinuous() {
+      const text = document.getElementById('msgText').value;
+      setStatus('Transmitiendo...', '#3a4ee0');
+      fetch('/play?text=' + encodeURIComponent(text)).then(() => setStatus('Listo', '#8c93a8'));
+    }
+    function setPreset(txt) { document.getElementById('msgText').value = txt; sendContinuous(); }
+    function playChar(ch) { fetch('/play?text=' + encodeURIComponent(ch)); }
+
+    let legendBlind = false;
+    function toggleBlindLegend() {
+      legendBlind = !legendBlind;
+      document.getElementById('legendBlindBtn').innerText = '👁 OCULTO: ' + (legendBlind ? 'ON' : 'OFF');
+      document.getElementById('morseLegend').classList.toggle('blind-hidden', legendBlind);
+    }
+
+    function buildLegend() {
+      const lg = document.getElementById('morseLegend');
+      lg.innerHTML = '';
+      morseChars.forEach(item => {
+        const d = document.createElement('div');
+        d.className = 'lg-item';
+        d.innerHTML = `<b>${item.c}</b><span>${item.m}</span>`;
+        lg.appendChild(d);
+      });
+    }
+
+    function stopAudio() {
+      isAutoPlaying = false;
+      clearTimeout(autoTimer);
+      document.getElementById('autoBtn').innerText = '⏯ AUTO-PLAY';
+      fetch('/stop').then(() => setStatus('Detenido', '#d32f2f'));
+    }
+
+    function setStatus(msg, color) {
+      const st = document.getElementById('status');
+      st.innerText = msg;
+      st.style.color = color;
+    }
+
+    function loadList() {
+      const raw = document.getElementById('listInput').value;
+      words = raw.trim().split(/[\s,]+/);
+      currentIndex = 0;
+      buildQueue();
+      updateCard();
+      setStatus('Lista cargada (' + words.length + ' palabras)', '#7d8eff');
+    }
+
+    // Construye la cola de reproducción: orden natural o barajada (sin repetir)
+    function buildQueue() {
+      playQueue = [];
+      for (let i = 0; i < words.length; i++) playQueue.push(i);
+      if (shuffleMode) {
+        // Fisher-Yates
+        for (let i = playQueue.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [playQueue[i], playQueue[j]] = [playQueue[j], playQueue[i]];
+        }
+      }
+      queuePos = 0;
+      if (playQueue.length > 0) currentIndex = playQueue[0];
+    }
+
+    function toggleShuffle() {
+      shuffleMode = document.getElementById('shufflePlay').checked;
+      if (words.length > 0 && !isAutoPlaying) buildQueue();
+      setStatus('🔀 Modo aleatorio: ' + (shuffleMode ? 'ON' : 'OFF'), '#7d8eff');
+    }
+
+    // Avanza a la siguiente palabra (respeta la cola actual)
+    function advanceIndex() {
+      if (playQueue.length === 0) return false;
+      queuePos++;
+      if (queuePos >= playQueue.length) return false;  // lista agotada
+      currentIndex = playQueue[queuePos];
+      return true;
+    }
+
+    function updateCard() {
+      if (words.length === 0) return;
+      const el = document.getElementById('displayWord');
+      el.innerText = words[currentIndex];
+      el.className = 'word-text ' + (blindMode ? 'blind-hidden' : '');
+      const shown = queuePos + 1;
+      document.getElementById('displayCount').innerText = (shuffleMode ? '🔀 ' : '') + shown + ' de ' + words.length;
+    }
+
+    function toggleBlind() {
+      blindMode = !blindMode;
+      document.getElementById('blindBtn').innerText = '👁 OCULTO: ' + (blindMode ? 'ON' : 'OFF');
+      updateCard();
+    }
+
+    function playCurrentWord(onDone) {
+      if (words.length === 0) loadList();
+      updateCard();
+      // No revelar la palabra en el status (respeta el modo oculto 👁)
+      setStatus('Reproduciendo...', '#3a4ee0');
+      fetch('/play?text=' + encodeURIComponent(words[currentIndex]))
+        .then(() => {
+          setStatus('Listo', '#8c93a8');
+          if (onDone) onDone();
+        });
+    }
+
+    function repeatWord() { playCurrentWord(); }
+
+    function nextWord() {
+      if (words.length === 0) loadList();
+      if (advanceIndex()) {
+        updateCard();
+        if (document.getElementById('autoNavPlay').checked) playCurrentWord();
+      }
+    }
+
+    function prevWord() {
+      if (words.length === 0) loadList();
+      if (queuePos > 0) {
+        queuePos--;
+        currentIndex = playQueue[queuePos];
+        updateCard();
+        if (document.getElementById('autoNavPlay').checked) playCurrentWord();
+      }
+    }
+
+    function toggleAutoPlay() {
+      if (isAutoPlaying) {
+        stopAudio();
+      } else {
+        if (words.length === 0) loadList();
+        isAutoPlaying = true;
+        document.getElementById('autoBtn').innerText = '⏸ PAUSAR';
+        runAutoLoop();
+      }
+    }
+
+    function runAutoLoop() {
+      if (!isAutoPlaying) return;
+      playCurrentWord(() => {
+        if (!isAutoPlaying) return;
+        if (advanceIndex()) {
+          const pause = parseFloat(document.getElementById('pauseSlider').value) * 1000;
+          autoTimer = setTimeout(() => {
+            updateCard();
+            runAutoLoop();
+          }, pause);
+        } else {
+          // NUNCA parar: al agotar la lista, re-barajar (o reiniciar en orden) y seguir
+          buildQueue();
+          const pause = parseFloat(document.getElementById('pauseSlider').value) * 1000;
+          autoTimer = setTimeout(() => {
+            updateCard();
+            runAutoLoop();
+          }, pause);
+        }
+      });
+    }
+
+    function clearDecoder() {
+      fetch('/clear_decoded').then(() => {
+        document.getElementById('decodedText').innerText = "Esperando manipulación...";
+        document.getElementById('liveWpm').innerText = "--";
+      });
+    }
+
+    function copyDecoderText() {
+      const t = document.getElementById('decodedText').innerText;
+      if (t && t !== "Esperando manipulación...") {
+        navigator.clipboard.writeText(t);
+        setStatus("Copiado al portapapeles", "#7d8eff");
+      }
+    }
+
+    function scanWiFi() {
+      setStatus('Escaneando redes Wi-Fi...', '#3a4ee0');
+      fetch('/scan_wifi')
+        .then(res => res.json())
+        .then(networks => {
+          const sel = document.getElementById('scannedNetworks');
+          sel.innerHTML = '<option value="">-- Selecciona una red --</option>';
+          networks.forEach(net => {
+            const opt = document.createElement('option');
+            opt.value = net.ssid;
+            opt.innerText = net.ssid + ' (' + net.rssi + ' dBm)';
+            sel.appendChild(opt);
+          });
+          setStatus('Escaneo listo (' + networks.length + ' redes)', '#7d8eff');
+        })
+        .catch(() => setStatus('Error al escanear redes', '#d32f2f'));
+    }
+
+    function refreshStatus() {
+      fetch('/get_status')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('netStatusBox').innerHTML = data.wifi_status;
+        });
+    }
+
+    function saveConfig() {
+      const ssid = document.getElementById('cfgSSID').value;
+      const pass = document.getElementById('cfgPass').value;
+      if (!ssid) { alert('Ingresa o selecciona un SSID'); return; }
+      setStatus('Guardando configuración...', '#3a4ee0');
+      fetch('/save_cfg?ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass))
+        .then(() => {
+          setStatus('Guardado. Reconectando...', '#7d8eff');
+          setTimeout(refreshStatus, 3000);
+        });
+    }
+
+    function clearWiFi() {
+      if (confirm('¿Olvidar red Wi-Fi y operar únicamente en modo AP?')) {
+        fetch('/clear_wifi').then(() => {
+          document.getElementById('cfgSSID').value = '';
+          document.getElementById('cfgPass').value = '';
+          setStatus('Red eliminada', '#d32f2f');
+          setTimeout(refreshStatus, 1500);
+        });
+      }
+    }
+
+    window.onload = () => {
+      initKeyboard();
+      loadList();
+      refreshStatus();
+      buildLegend();
+      // Pause the decoder if we don't start on the DECODER tab
+      // Si no arrancamos en la pestaña DECODER, pausar el decoder
+      fetch('/set_decoder?state=0');
+    };
+
+    // Pause the decoder when leaving/closing the page
+    // Al cerrar/abandonar la página, pausar el decoder
+    window.addEventListener('beforeunload', () => {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/set_decoder?state=0');
+      } else {
+        fetch('/set_decoder?state=0');
+      }
+    });
+  </script>
+</body>
+</html>
+)rawliteral";
+
+#endif
