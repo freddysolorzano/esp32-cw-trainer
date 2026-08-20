@@ -167,9 +167,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
         <div class="terminal-box" id="decoderBox">
           <span id="decodedText" data-i18n="dec_waiting">Esperando manipulación...</span><span class="cursor">_</span>
         </div>
-        <div class="btn-group" style="margin-top: 10px;">
-          <button class="btn-sec" onclick="clearDecoder()" data-i18n="dec_clear">🗑 LIMPIAR</button>
-        </div>
+        <button class="btn-sec" style="width: 100%;" onclick="clearDecoder()" data-i18n="dec_clear">🗑 LIMPIAR</button>
         <div style="margin-top: 10px;">
           <button class="btn-sec" style="width: 100%;" onclick="toggleBlindLegend()" id="legendBlindBtn">👁 OCULTO: OFF</button>
         </div>
