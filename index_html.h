@@ -297,6 +297,8 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
     let words = [], currentIndex = 0, blindMode = false, isAutoPlaying = false, autoTimer = null;
     let shuffleMode = false, playQueue = [], queuePos = 0;   // modo aleatorio (baraja sin repetir)
     let decoderInterval = null;
+    let decodedTotal = 0;
+    let decoderBusy = false;
 
     const morseChars = [
       {c:'A',m:'.-'},{c:'B',m:'-...'},{c:'C',m:'-.-.'},{c:'D',m:'-..'},{c:'E',m:'.'},{c:'F',m:'..-.'},
@@ -340,16 +342,32 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
 
     function startDecoderPolling() {
       if (decoderInterval) clearInterval(decoderInterval);
+      decoderBusy = false;
       decoderInterval = setInterval(() => {
-        fetch('/get_decoded')
+        // v12.1: flag busy -> nunca lanzar un fetch si el anterior sigue en
+        // vuelo. Antes, con el servidor lento, 2-4 fetches con el mismo since
+        // se solapaban y cada uno apendaba el mismo delta (letras x4).
+        if (decoderBusy) return;
+        decoderBusy = true;
+        fetch('/get_decoded?since=' + decodedTotal)
           .then(r => r.json())
           .then(d => {
             const box = document.getElementById('decodedText');
-            if (d.text && d.text.length > 0) {
-              box.innerText = d.text;
-            } else {
-              box.innerText = "Esperando manipulación...";
+            const waiting = t('dec_waiting');
+            if (d.n !== undefined && d.n < decodedTotal) decodedTotal = 0; // servidor reinició
+            // Solo apendar si hay texto NUEVO (d.n > decodedTotal) o si el
+            // servidor mandó el buffer completo (full) o el cuadro está vacío.
+            if (d.text && d.text.length > 0 && (d.full || d.n > decodedTotal || box.innerText === waiting)) {
+              if (d.full || box.innerText === waiting) {
+                box.innerText = d.text;
+              } else {
+                box.innerText += d.text;
+              }
+            } else if (decodedTotal === 0) {
+              // Solo mostrar "Esperando..." si NO hay nada decodificado.
+              box.innerText = waiting;
             }
+            if (d.n !== undefined) decodedTotal = d.n;
             if (d.wpm !== undefined) {
               document.getElementById('liveWpm').innerText = d.wpm > 0 ? d.wpm : '--';
             }
@@ -358,7 +376,8 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
               t.innerText = d.timing;
               t.style.color = d.timing >= 80 ? '#2ecc71' : (d.timing >= 50 ? '#f1c40f' : '#e74c3c');
             }
-          }).catch(() => {});
+          }).catch(() => {})
+          .finally(() => { decoderBusy = false; });
       }, 250);
     }
 
@@ -535,6 +554,7 @@ const char PAGE_HTML[] PROGMEM = R"rawliteral(
       fetch('/clear_decoded').then(() => {
         document.getElementById('decodedText').innerText = t('dec_waiting');
         document.getElementById('liveWpm').innerText = "--";
+        decodedTotal = 0;
       });
     }
 

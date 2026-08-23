@@ -13,7 +13,7 @@
  * ------------------------------------------------------------
  *   GPIO 25  -> Audio buzzer / PWM output
  *   GPIO 27  -> Status LED
- *   GPIO 18  -> Straight key input (INPUT_PULLUP)
+ *   GPIO 32  -> Straight key input (INPUT_PULLUP)
  *
  * ------------------------------------------------------------
  *  FEATURES / CARACTERÍSTICAS
@@ -29,24 +29,36 @@
  * ------------------------------------------------------------
  *  DECODER DESIGN / DISEÑO DEL DECODER
  * ------------------------------------------------------------
- *  [EN] Straight key only. Speed is estimated with the MEDIAN
- *       of recent dits (immune to outliers, adapts in 2-3
- *       elements). Classification uses a geometric midpoint
- *       with hysteresis (dit < 1.6x, dah > 2.4x, tolerant gray
- *       zone). Char/word ends follow real Morse structure
- *       (gap ~1 dit, char ~2.5, word ~5.5). In-progress chars
- *       are retro-corrected when speed changes >15%. Ambiguous
- *       elements never pollute the median; speed drops require
- *       4+ sustained slow elements; floor of ~8 WPM.
- *  [ES] Solo llave simple. La velocidad se estima con la MEDIANA
- *       de los dits recientes (inmune a outliers, se adapta en
- *       2-3 elementos). Clasificación por punto medio geométrico
- *       con histéresis (dit < 1.6x, dah > 2.4x, zona gris
- *       tolerante). Fines de carácter/palabra según estructura
- *       morse real (gap ~1 dit, char ~2.5, palabra ~5.5).
- *       Retro-corrección del carácter en curso si la velocidad
- *       cambia >15%. Los ambiguos nunca contaminan la mediana;
- *       bajar velocidad requiere 4+ lentos sostenidos; piso ~8 WPM.
+ *  [EN] v12: deferred per-character decision. Raw element
+ *       durations are buffered WITHOUT classifying them; when
+ *       the char-end silence arrives, ALL elements of the
+ *       character are classified at once against a STABLE
+ *       median (dit < 1.5x, dah > 2.0x, gray zone by proximity
+ *       to 1.75x). Speed is updated ONLY from completed chars
+ *       (median of the last 6 char speeds, clamped to +-25% per
+ *       char) so the displayed WPM never jumps by itself.
+ *       No retro-correction, no history pollution, no forced
+ *       dah/dit consistency that could collapse the median.
+ *       Char/word ends follow real Morse structure (char ~2.5,
+ *       word ~5.5). /get_decoded?since=N is incremental so HTTP
+ *       polling never blocks key sampling.
+ *  [ES] v12: decisión diferida por carácter. Las duraciones
+ *       crudas se acumulan SIN clasificar; al llegar el silencio
+ *       de fin de carácter, TODOS los elementos se clasifican de
+ *       una vez contra una mediana ESTABLE (dit < 1.5x, dah >
+ *       2.0x, zona gris por cercanía a 1.75x). La velocidad se
+ *       actualiza SOLO con caracteres completos (mediana de las
+ *       últimas 6 velocidades, clamp +-25% por carácter) — el
+ *       WPM mostrado ya no salta solo. Sin retro-corrección, sin
+ *       contaminación del historial, sin consistencia forzada
+ *       dah/dit que pudiera colapsar la mediana. Fines de
+ *       carácter/palabra por estructura morse real (char ~2.5,
+ *       palabra ~5.5). /get_decoded?since=N es incremental para
+ *       que el polling HTTP nunca bloquee el muestreo de llave.
+ *  v12.2: rate-limit ±25% real por carácter; gaps intra-carácter
+ *       en la métrica 🎯; gate de velocidad/🎯 con caracteres
+ *       válidos; medianOf() sin mutar el anillo; loop muestrea
+ *       llave antes que HTTP; doc re-anclaje ×1.8 corregida.
  *
  *  Author / Autor:  Radio Club Venezolano YV4AA community project
  *  License / Licencia: MIT
@@ -65,7 +77,7 @@
 // ==========================================
 #define AUDIO_PIN   25  // Buzzer o salida PWM
 #define LED_PIN     27  // LED indicador
-#define KEY_DOT     18  // Entrada Dit / Llave recta (única entrada en v11)
+#define KEY_DOT     32  // Entrada Dit / Llave recta (única entrada en v11)
 
 // ==========================================
 // PARÁMETROS DE AUDIO / MORSE
@@ -83,43 +95,55 @@ volatile bool abortPlayback = false;
 bool toneIsCurrentlyOn = false;
 
 // ==========================================
-// MOTOR POWER-DECODER (ESTRUCTURAS Y VARIABLES)
+// MOTOR POWER-DECODER v12 (ESTRUCTURAS Y VARIABLES)
 // ==========================================
-#define DECODED_MAX_LEN  2000     // Máx. chars en buffer decodificado
+#define DECODED_MAX_LEN  800      // Máx. chars en buffer decodificado (v12: liviano)
 #define KEY_STUCK_MS     2500UL   // Timeout llave atascada (2.5 s)
 #define ELEMENT_MIN_MS   16UL     // Elemento mínimo real (16 ms)
-#define ELEM_HIST_LEN    12       // Historial de elementos (mediana robusta)
+#define CHAR_BUF_MAX     8        // Máx. elementos por carácter (morse ≤ 6 + margen)
+#define CHAR_DITS_MAX    6        // Velocidades de caracteres completos (mediana)
+#define DIT_HIST_MAX     12       // Dits recientes (métrica de regularidad 🎯)
+#define DIT_SAMP_MAX     12       // Muestras de dit (dits + gaps intra-carácter) para velocidad
 
 String decodedBuffer = "";
+uint32_t decodedTotal = 0;        // total de chars decodificados (para ?since=N)
 int liveCalculatedWpm = 0;
 int liveTimingPct = 100;          // 0-100: regularidad del timing (100 = perfecto)
 
-// Estado del decoder (muestreo por polling, llave simple en GPIO 18)
-int           treeIndex      = 1;   // posición actual en el árbol Morse
+// Estado del decoder (muestreo por polling, llave simple en GPIO 32)
 unsigned long pressStartMs   = 0;   // ms del flanco de bajada
 unsigned long lastReleaseMs  = 0;   // ms del último flanco de subida
 bool          keyIsActive    = false;
+bool          keyWasStuck    = false;   // llave atascada: bloquea re-disparo hasta liberarla (FIX 2026-08-22)
 bool          decoderEnabled = true;   // decoder pauses when nobody is watching the DECODER tab / el decoder se pausa si nadie mira la pestaña DECODER
 bool          charPending    = false;
 bool          wordPending    = false;
 int           charsInWord    = 0;       // chars desde el último espacio
 
-// Historial de elementos para mediana robusta (inmune a outliers)
-struct ElemRec { uint32_t dur; bool isDah; bool clean; };
-ElemRec elemHist[ELEM_HIST_LEN];
-int elemHistHead  = 0;
-int elemHistCount = 0;
+// Carácter en construcción: duraciones CRUDAS (nada se clasifica aún)
+float charBuf[CHAR_BUF_MAX];
+int   charBufLen = 0;
 
-// Carácter en construcción (para retro-corrección al cambiar la velocidad)
-uint8_t curCode[8];   // 0=dit, 1=dah
-int     curCodeLen = 0;
+// Velocidad: mediana de dits de los últimos caracteres COMPLETOS
+float charDits[CHAR_DITS_MAX];
+int   charDitsHead  = 0;
+int   charDitsCount = 0;
 
-// Conteo de elementos lentos sostenidos (evidencia para bajar la velocidad)
-int slowStreak = 0;
+// Dits recientes crudos (solo métrica de regularidad)
+float ditHist[DIT_HIST_MAX];
+int   ditHistHead  = 0;
+int   ditHistCount = 0;
 
-// Velocidad por MEDIANA (ms), inicializada a 15 WPM
-float medianDitMs = 80.0f;    // mediana de dits recientes
-float medianDahMs = 240.0f;   // mediana de dahs recientes
+// Muestras de velocidad: dits clasificados + gaps intra-carácter (~1 dit).
+// Los gaps son la clave para velocidad baja: un dit lento mal clasificado
+// como dah nunca alimentaría la mediana (deadlock); el gap intra-carácter
+// SIEMPRE mide ~1 dit y adapta la velocidad aunque la clasificación falle.
+float ditSamples[DIT_SAMP_MAX];
+int   ditSampHead  = 0;
+int   ditSampCount = 0;
+
+// Velocidad estable actual (ms), inicializada a 15 WPM
+float medianDitMs = 80.0f;
 
 // Árbol binario Morse (128 nodos: soporta códigos de hasta 6 elementos)
 // Índice 1 = Raíz. Si Dit -> 2*i. Si Dah -> 2*i + 1
@@ -286,68 +310,101 @@ void playTextMorse(String text) {
 }
 
 // ==========================================
-// MOTOR POWER-DECODER (llave simple + mediana + estructura morse)
+// MOTOR POWER-DECODER v12 (decisión diferida por carácter)
 // ==========================================
 
 void appendDecoded(char c) {
   if (decodedBuffer.length() >= DECODED_MAX_LEN) {
-    decodedBuffer.remove(0, 500); // descartar lo más viejo
+    decodedBuffer.remove(0, 200); // descartar lo más viejo (de a 200)
   }
   decodedBuffer += c;
+  decodedTotal++;
 }
 
-// ---- Utilidades de mediana (robustas a outliers) ----
-void addElemHist(uint32_t dur, bool isDah, bool clean) {
-  elemHist[elemHistHead] = {dur, isDah, clean};
-  elemHistHead = (elemHistHead + 1) % ELEM_HIST_LEN;
-  if (elemHistCount < ELEM_HIST_LEN) elemHistCount++;
-}
-
+// ---- Utilidades de mediana (n <= 12, ordenamiento por inserción) ----
 float medianOf(float* arr, int n) {
-  // Ordenamiento por inserción (n <= 12, suficiente)
+  // v12.2: copia local para NO mutar el arreglo original (el anillo FIFO
+  // charDits/ditSamples debe conservar su orden de inserción).
+  float tmp[16];
+  for (int i = 0; i < n; i++) tmp[i] = arr[i];
   for (int i = 1; i < n; i++) {
-    float key = arr[i];
+    float key = tmp[i];
     int j = i - 1;
-    while (j >= 0 && arr[j] > key) { arr[j+1] = arr[j]; j--; }
-    arr[j+1] = key;
+    while (j >= 0 && tmp[j] > key) { tmp[j+1] = tmp[j]; j--; }
+    tmp[j+1] = key;
   }
-  return (n % 2) ? arr[n/2] : (arr[n/2 - 1] + arr[n/2]) / 2.0f;
+  return (n % 2) ? tmp[n/2] : (tmp[n/2 - 1] + tmp[n/2]) / 2.0f;
 }
 
-// Recalcular medianas desde el historial (SOLO elementos limpios + rechazo de outliers)
-void recomputeMedians() {
-  float dits[ELEM_HIST_LEN], dahs[ELEM_HIST_LEN];
-  int nd = 0, nh = 0;
-  for (int i = 0; i < elemHistCount; i++) {
-    int idx = (elemHistHead - 1 - i + ELEM_HIST_LEN) % ELEM_HIST_LEN;
-    // v11.1: solo elementos limpios (no ambiguos) entran a la mediana
-    // Only clean (non-ambiguous) elements feed the median
-    if (!elemHist[idx].clean) continue;
-    // Rechazo de outliers: un dit no puede ser >1.8x la mediana actual
-    // (evita que una duda/pausa puntual infle la mediana y baje el WPM)
-    if (!elemHist[idx].isDah && elemHist[idx].dur > medianDitMs * 1.8f) continue;
-    if (elemHist[idx].isDah && elemHist[idx].dur > medianDahMs * 1.8f) continue;
-    if (elemHist[idx].isDah) dahs[nh++] = (float)elemHist[idx].dur;
-    else dits[nd++] = (float)elemHist[idx].dur;
+// Clasificar UN elemento contra la mediana ESTABLE.
+// dit < 1.5x ; dah > 2.0x ; zona gris -> cercanía al punto medio 1.75x
+bool isDahElem(float durMs) {
+  if (durMs < medianDitMs * 1.5f) return false;
+  if (durMs > medianDitMs * 2.0f) return true;
+  return durMs >= medianDitMs * 1.75f;
+}
+
+// Añadir una muestra de velocidad (dit clasificado o gap intra-carácter)
+void addDitSample(float v) {
+  if (v < ELEMENT_MIN_MS) return;
+  ditSamples[ditSampHead] = v;
+  ditSampHead = (ditSampHead + 1) % DIT_SAMP_MAX;
+  if (ditSampCount < DIT_SAMP_MAX) ditSampCount++;
+}
+
+// Decisión DIFERIDA: clasificar el carácter completo y devolver su índice
+// en el árbol morse (1 = raíz/inválido). Nunca a mitad de carácter.
+int classifyCharToTree() {
+  int tr = 1;
+  for (int i = 0; i < charBufLen; i++) {
+    bool isDah = isDahElem(charBuf[i]);
+    if (tr < 128) tr = tr * 2 + (isDah ? 1 : 0);
   }
-  if (nd >= 2) medianDitMs = medianOf(dits, nd);
-  if (nh >= 2) medianDahMs = medianOf(dahs, nh);
-  // Consistencia: Dah >= 2.5x Dit
-  if (medianDahMs < medianDitMs * 2.5f) medianDahMs = medianDitMs * 3.0f;
-  if (medianDitMs > medianDahMs / 2.2f) medianDitMs = medianDahMs / 3.0f;
-  // Piso de velocidad: nunca bajar de ~8 WPM (dit > 150ms) salvo evidencia real
-  if (medianDitMs > 150.0f) medianDitMs = 150.0f;
+  return tr;
+}
+
+// Actualizar velocidad con las muestras de dit (dits clasificados + gaps).
+// - Doble mediana (12 muestras + 6 velocidades): robusta y sin saltos.
+// - Outlier duro amplio: una muestra absurda no descalibra.
+void updateSpeedFromChar() {
+  // Dits clasificados de este carácter (refuerzan cuando la clasificación acierta)
+  for (int i = 0; i < charBufLen; i++) {
+    float dur = charBuf[i];
+    if (isDahElem(dur)) continue;
+    ditHist[ditHistHead] = dur;
+    ditHistHead = (ditHistHead + 1) % DIT_HIST_MAX;
+    if (ditHistCount < DIT_HIST_MAX) ditHistCount++;
+    addDitSample(dur);
+  }
+  if (ditSampCount < 3) return;   // pocas muestras: no tocar la velocidad
+  float tmp[DIT_SAMP_MAX];
+  for (int i = 0; i < ditSampCount; i++) {
+    int idx = (ditSampHead - 1 - i + DIT_SAMP_MAX) % DIT_SAMP_MAX;
+    tmp[i] = ditSamples[idx];
+  }
+  float nm = medianOf(tmp, ditSampCount);
+  if (nm < medianDitMs * 0.4f || nm > medianDitMs * 2.5f) return;  // outlier duro
+  // v12.2: RATE-LIMIT ±25% por carácter (implementa el clamp documentado).
+  // Techo de movimiento por carácter: el WPM mostrado no puede saltar solo.
+  // El re-anclaje lento (×1.8) queda FUERA de este clamp (salto deliberado).
+  float lo = medianDitMs * 0.75f;
+  float hi = medianDitMs * 1.25f;
+  if (nm < lo) nm = lo;
+  if (nm > hi) nm = hi;
+  charDits[charDitsHead] = nm;
+  charDitsHead = (charDitsHead + 1) % CHAR_DITS_MAX;
+  if (charDitsCount < CHAR_DITS_MAX) charDitsCount++;
+  medianDitMs = medianOf(charDits, charDitsCount);
 }
 
 // Actualizar la métrica de regularidad del timing (0-100)
 void updateTimingPct() {
-  if (elemHistCount < 3) { liveTimingPct = 100; return; }
-  float vals[ELEM_HIST_LEN];
+  if (ditHistCount < 3) { liveTimingPct = 100; return; }
+  float vals[DIT_HIST_MAX];
   int n = 0;
-  for (int i = 0; i < elemHistCount; i++) {
-    int idx = (elemHistHead - 1 - i + ELEM_HIST_LEN) % ELEM_HIST_LEN;
-    float v = elemHist[idx].isDah ? (float)elemHist[idx].dur / 3.0f : (float)elemHist[idx].dur;
-    vals[n++] = v;
+  for (int i = 0; i < ditHistCount; i++) {
+    int idx = (ditHistHead - 1 - i + DIT_HIST_MAX) % DIT_HIST_MAX;
+    vals[n++] = ditHist[idx];
   }
   float mean = 0;
   for (int i = 0; i < n; i++) mean += vals[i];
@@ -361,36 +418,10 @@ void updateTimingPct() {
   liveTimingPct = constrain((int)(100.0f - (cv - 0.10f) * 285.0f), 0, 100);
 }
 
-// Clasificar elemento por punto medio geométrico con histéresis
-// dit si dur < 1.6x dit ; dah si dur > 2.4x dit ; zona gris -> por cercanía a 2.0x
-bool classifyElem(float durMs, bool* ambiguous) {
-  float ditMax = medianDitMs * 1.6f;  // claramente dit
-  float dahMin = medianDitMs * 2.4f;  // claramente dah
-  if (durMs < ditMax) { *ambiguous = false; return false; }  // dit
-  if (durMs > dahMin) { *ambiguous = false; return true; }   // dah
-  *ambiguous = true;  // zona gris: tolerar, clasificar por cercanía al punto medio
-  return durMs >= medianDitMs * 2.0f;
-}
-
-// Retro-corrección: reclasificar el carácter en curso si la velocidad cambió
-void retroCorrectChar() {
-  if (curCodeLen == 0 || elemHistCount == 0) return;
-  int startIdx = (elemHistHead - curCodeLen + ELEM_HIST_LEN) % ELEM_HIST_LEN;
-  treeIndex = 1;
-  for (int i = 0; i < curCodeLen; i++) {
-    int idx = (startIdx + i) % ELEM_HIST_LEN;
-    bool amb;
-    bool isDah = classifyElem((float)elemHist[idx].dur, &amb);
-    elemHist[idx].isDah = isDah;
-    curCode[i] = isDah ? 1 : 0;
-    if (treeIndex < 128) treeIndex = treeIndex * 2 + (isDah ? 1 : 0);
-  }
-}
-
 void processRobustDecoder() {
   if (isPlaying) return;
 
-  bool currentPinState = (digitalRead(KEY_DOT) == LOW);  // llave simple GPIO 18
+  bool currentPinState = (digitalRead(KEY_DOT) == LOW);  // llave simple GPIO 32
   unsigned long now = millis();
 
   // Decoder paused -> ONLY key feedback (sound/LED), no decoding.
@@ -398,12 +429,16 @@ void processRobustDecoder() {
   // The key ALWAYS beeps when tapped (trainer); only recognition stops.
   // La llave SIEMPRE suena al teclear (entrenador); solo se detiene el reconocimiento.
   if (!decoderEnabled) {
+    // Llave liberada: habilita la llave de nuevo tras un stuck
+    if (!currentPinState) keyWasStuck = false;
+
     if (keyIsActive && (now - pressStartMs) >= KEY_STUCK_MS) {
       soundAndLightOff();
       keyIsActive = false;
+      keyWasStuck = true;      // FIX: no re-disparar mientras siga pulsada
       lastReleaseMs = now;
     }
-    if (currentPinState && !keyIsActive) {
+    if (currentPinState && !keyIsActive && !keyWasStuck) {
       soundAndLightOn();
       pressStartMs = now;
       keyIsActive = true;
@@ -415,26 +450,47 @@ void processRobustDecoder() {
     return;
   }
 
-  // Timeout de llave atascada: si queda pulsada >2.5 s, resetear estado
+  // Llave liberada: habilita la llave de nuevo tras un stuck
+  if (!currentPinState) keyWasStuck = false;
+
+  // Timeout de llave atascada: si queda pulsada >2.5 s, apagar y BLOQUEAR
+  // hasta que se libere (FIX 2026-08-22: antes re-disparaba el tono al instante)
   if (keyIsActive && (now - pressStartMs) >= KEY_STUCK_MS) {
     soundAndLightOff();
     keyIsActive = false;
+    keyWasStuck = true;
     lastReleaseMs = now;
-    treeIndex = 1;
     charPending = false;
     wordPending = false;
-    curCodeLen = 0;
+    charBufLen = 0;
   }
 
   // Flanco de bajada (Pulsación)
-  if (currentPinState && !keyIsActive) {
+  if (currentPinState && !keyIsActive && !keyWasStuck) {
+    // v12.1: gap intra-carácter como muestra de velocidad (~1 dit exacto).
+    // Es INMUNE a la clasificación dit/dah: aunque la mediana esté anclada
+    // rápido (p.ej. 15 WPM) y un dit lento se mal-clasifique como dah, el
+    // silencio entre elementos del mismo carácter SIEMPRE mide ~1 dit del
+    // operador real -> la velocidad baja se aprende sin deadlock.
+    // v12.2: el gap también alimenta la métrica 🎯 (timing constante =
+    // dits Y espacios consistentes; antes solo se medían los dits).
+    if (charPending && lastReleaseMs > 0 && charBufLen > 0) {
+      float gapMs = (float)(now - lastReleaseMs);
+      if (gapMs > ELEMENT_MIN_MS && gapMs < medianDitMs * 2.1f) {
+        addDitSample(gapMs);
+        ditHist[ditHistHead] = gapMs;
+        ditHistHead = (ditHistHead + 1) % DIT_HIST_MAX;
+        if (ditHistCount < DIT_HIST_MAX) ditHistCount++;
+      }
+    }
     soundAndLightOn();
     pressStartMs = now;
     keyIsActive = true;
     charPending = true;
     wordPending = true;
   }
-  // Flanco de subida (Liberación)
+  // Flanco de subida (Liberación): SOLO se guarda la duración CRUDA.
+  // v12: nada se clasifica aquí; la decisión es diferida al fin de carácter.
   else if (!currentPinState && keyIsActive) {
     soundAndLightOff();
     unsigned long duration = now - pressStartMs;
@@ -444,77 +500,74 @@ void processRobustDecoder() {
     // Filtro Antirrebote (>16 ms)
     if (duration < ELEMENT_MIN_MS) return;
 
-    float durMs = (float)duration;
-    bool ambiguous;
-    bool isDah = classifyElem(durMs, &ambiguous);
-    bool clean = !ambiguous;
-
-    // Asymmetric adaptation: speed up fast, slow down only with
-    // sustained evidence (4+ consecutive slow elements). A single
-    // hesitation no longer mis-calibrates the decoder.
-    // Adaptación asimétrica: subir velocidad rápido, bajarla solo con
-    // evidencia sostenida (4+ elementos lentos consecutivos).
-    // Una duda/pausa puntual ya NO descalibra el decoder.
-    if (clean && !isDah) {
-      if (durMs > medianDitMs * 1.25f) slowStreak++;
-      else slowStreak = 0;
-    } else {
-      slowStreak = 0;
+    if (charBufLen < CHAR_BUF_MAX) {
+      charBuf[charBufLen++] = (float)duration;
     }
-    if (slowStreak < 4 && durMs > medianDitMs * 1.8f) {
-      // Elemento lento sin evidencia sostenida: NO toca la mediana (outlier)
-      clean = false;
-    }
-
-    // Guardar en historial + carácter en curso
-    addElemHist(duration, isDah, clean);
-    if (curCodeLen < 8) curCode[curCodeLen++] = isDah ? 1 : 0;
-    if (treeIndex < 128) treeIndex = treeIndex * 2 + (isDah ? 1 : 0);
-
-    // Recalcular medianas con el historial
-    float prevDit = medianDitMs;
-    recomputeMedians();
-
-    // Si la velocidad estimada cambió >15%, retro-corregir el carácter en curso
-    if (curCodeLen > 1 && fabs(medianDitMs - prevDit) / prevDit > 0.15f) {
-      retroCorrectChar();
-    }
-
-    // WPM por mediana (estable)
-    liveCalculatedWpm = constrain((int)(1200.0f / medianDitMs), 5, 50);
-    updateTimingPct();
   }
-  // Estado Libre: decodificación de letras y espacios
+  // Estado Libre: decodificación de letras y espacios (decisión diferida)
   else if (!keyIsActive) {
     float silenceMs = (float)(now - lastReleaseMs);
 
-    // Umbrales por estructura morse: gap elemento ≈ 1 dit, char ≈ 3, palabra ≈ 7
-    float charEndMs  = medianDitMs * 2.5f;  // ~2.5 dits
-    float wordEndMs  = medianDitMs * 5.5f;  // ~5.5 dits
+    // Umbrales por estructura morse real sobre la mediana ESTABLE.
+    // charEnd 2.2x: por debajo del gap entre caracteres (3 dits, con jitter
+    // humano puede caer a ~2.6x) pero por encima del gap entre elementos
+    // (~1 dit). wordEnd 6.0x: gap entre palabras (~7 dits).
+    float charEndMs = medianDitMs * 2.2f;
+    float wordEndMs = medianDitMs * 6.0f;
 
-    // Fin de carácter
+    // Fin de carácter: clasificar TODO el carácter de una vez
     if (charPending && silenceMs >= charEndMs) {
-      if (treeIndex > 1 && treeIndex < 128) {
-        // Prosigns multi-char (ej: SK)
-        const char* prosign = nullptr;
-        for (const auto& p : PROSIGNS) {
-          if (p.idx == treeIndex) { prosign = p.out; break; }
-        }
-        if (prosign) {
-          for (const char* q = prosign; *q != '\0'; q++) appendDecoded(*q);
-        } else {
-          char c = MORSE_TREE[treeIndex];
-          if (c != '\0') {
-            appendDecoded(c);
+      if (charBufLen > 0) {
+        int tr = classifyCharToTree();
+        bool valid = (tr > 1 && tr < 128 && MORSE_TREE[tr] != '\0');
+
+        // v12.1 RE-ANCLAJE LENTO: si el carácter sale inválido, el operador
+        // probablemente va MÁS LENTO que la mediana actual (dits largos mal
+        // clasificados como dahs). Probar reclasificar con mediana ×1.8
+        // (AUMENTAR el dit = bajar la velocidad estimada; dividir haría lo
+        // contrario y agravaría el deadlock — NO cambiar a ÷1.8).
+        if (!valid) {
+          float prevMedian = medianDitMs;
+          medianDitMs = max(medianDitMs * 1.8f, 60.0f);   // bajar velocidad estimada
+          int tr2 = classifyCharToTree();
+          bool valid2 = (tr2 > 1 && tr2 < 128 && MORSE_TREE[tr2] != '\0');
+          if (valid2) {
+            tr = tr2;
+            valid = true;
+            // v12.2: NO empujar directo a charDits aquí. La velocidad nueva
+            // (más lenta) la consolida updateSpeedFromChar() con las muestras
+            // de este carácter (que ahora clasifican bien con la mediana
+            // re-anclada). Evita el doble push con los mismos elementos.
+            // El re-anclaje queda FUERA del clamp ±25% (salto deliberado).
           } else {
-            appendDecoded('?');
+            medianDitMs = prevMedian;  // no era eso: restaurar
           }
         }
-        charsInWord++;
+
+        // v12.2: SOLO caracteres válidos actualizan velocidad y métrica 🎯.
+        // Un carácter inválido (basura/ruido) no debe contaminar las ventanas.
+        if (valid) {
+          // Prosigns multi-char (ej: SK)
+          const char* prosign = nullptr;
+          for (const auto& p : PROSIGNS) {
+            if (p.idx == tr) { prosign = p.out; break; }
+          }
+          if (prosign) {
+            for (const char* q = prosign; *q != '\0'; q++) appendDecoded(*q);
+          } else {
+            appendDecoded(MORSE_TREE[tr]);
+          }
+          charsInWord++;
+          // Actualizar velocidad con caracteres completos (mediana estable)
+          updateSpeedFromChar();
+          updateTimingPct();
+          liveCalculatedWpm = constrain((int)(1200.0f / medianDitMs), 5, 50);
+        } else {
+          appendDecoded('?');
+        }
       }
-      treeIndex = 1; // Reiniciar árbol
       charPending = false;
-      curCodeLen = 0;
+      charBufLen = 0;
     }
 
     // Fin de palabra
@@ -553,11 +606,10 @@ void handleSetDecoder() {
       decoderEnabled = newState;
       // Al pausar/reanudar, resetear estado del decoder para no arrastrar
       // elementos a medio decodificar.
-      treeIndex = 1;
       charPending = false;
       wordPending = false;
       charsInWord = 0;
-      curCodeLen = 0;
+      charBufLen = 0;
       keyIsActive = false;
       soundAndLightOff();
       lastReleaseMs = millis();
@@ -709,14 +761,19 @@ void setup() {
   // NVS WPM (which is playback-only). Self-adaptive from real keying.
   // El decoder SIEMPRE arranca en 15 WPM, independiente del
   // WPM guardado en NVS (que es solo de reproducción).
-  // Median-based initial speed (dit=80ms, dah=240ms)
-  // Medianas iniciales a 15 WPM (dit=80ms, dah=240ms)
+  // Median-based initial speed (dit=80ms -> 15 WPM). Self-adaptive from
+  // real keying: starts at 15 WPM and calibrates with completed chars.
+  // Velocidad inicial por mediana a 15 WPM (dit=80ms); se auto-ajusta
+  // con los caracteres completos del tecleo real.
   medianDitMs = 80.0f;
-  medianDahMs = 240.0f;
-  elemHistCount = 0;
-  elemHistHead = 0;
-  curCodeLen = 0;
-  slowStreak = 0;
+  charBufLen = 0;
+  charDitsHead = 0;
+  charDitsCount = 0;
+  ditHistHead = 0;
+  ditHistCount = 0;
+  ditSampHead = 0;
+  ditSampCount = 0;
+  decodedTotal = 0;
   liveTimingPct = 100;
 
   pinMode(LED_PIN, OUTPUT);
@@ -763,29 +820,46 @@ void setup() {
   server.on("/clear_wifi", handleClearWiFi);
 
   server.on("/get_decoded", HTTP_GET, []() {
-    String jsonText = decodedBuffer;
-    jsonText.replace("\\", "\\\\");
-    jsonText.replace("\"", "\\\"");
-    jsonText.replace("\n", "\\n");
-    jsonText.replace("\r", "\\r");
-    jsonText.replace("\t", "\\t");
-    String json = "{\"text\":\"" + jsonText + "\",\"wpm\":" + String(liveCalculatedWpm) +
+    // v12: polling INCREMENTAL. Si el cliente manda ?since=N solo se
+    // serializan los chars NUEVOS (O(1) en vez de O(buffer)). Esto evita
+    // que el handler HTTP bloquee el loop y corrompa el muestreo de llave.
+    // v12.2: aritmética consistente en uint32_t (sin cast a int).
+    uint32_t since = server.hasArg("since") ? (uint32_t)server.arg("since").toInt() : 0;
+    uint32_t bufLen = decodedBuffer.length();
+    int64_t bufStart = (int64_t)decodedTotal - (int64_t)bufLen;  // puede ser negativo tras trim
+    bool full = false;
+    String out;
+    if ((int64_t)since <= bufStart || bufLen == 0) {
+      out = decodedBuffer;   // cliente muy atrás (o sin since): enviar todo
+      full = true;
+    } else {
+      out = decodedBuffer.substring((uint32_t)((int64_t)since - bufStart));
+    }
+    out.replace("\\", "\\\\");
+    out.replace("\"", "\\\"");
+    out.replace("\n", "\\n");
+    out.replace("\r", "\\r");
+    out.replace("\t", "\\t");
+    String json = "{\"n\":" + String(decodedTotal) + ",\"full\":" + (full ? "true" : "false") +
+                  ",\"text\":\"" + out + "\",\"wpm\":" + String(liveCalculatedWpm) +
                   ",\"timing\":" + String(liveTimingPct) + "}";
     server.send(200, "application/json", json);
   });
 
   server.on("/clear_decoded", HTTP_GET, []() {
     decodedBuffer = "";
-    treeIndex = 1;
+    decodedTotal = 0;
     charPending = false;
     wordPending = false;
     charsInWord = 0;
-    curCodeLen = 0;
-    elemHistCount = 0;
-    elemHistHead = 0;
-    slowStreak = 0;
+    charBufLen = 0;
+    charDitsHead = 0;
+    charDitsCount = 0;
+    ditHistHead = 0;
+    ditHistCount = 0;
+    ditSampHead = 0;
+    ditSampCount = 0;
     medianDitMs = 80.0f;
-    medianDahMs = 240.0f;
     liveCalculatedWpm = 0;
     liveTimingPct = 100;
     server.send(200, "text/plain", "OK");
@@ -805,15 +879,18 @@ void setup() {
   });
 
   server.begin();
-  Serial.println("\n[OK] CW Trainer & Robust Power-Decoder Activo (v11.2)");
+  Serial.println("\n[OK] CW Trainer & Robust Power-Decoder Activo (v12.2)");
 }
 
 // ==========================================
 // LOOP PRINCIPAL
 // ==========================================
 void loop() {
+  // v12.2: muestrear la llave ANTES de atender HTTP. server.handleClient()
+  // puede bloquear unos ms con clientes lentos; el decoder es el camino
+  // sensible a latencia, así que va primero (menos jitter de flancos).
+  processRobustDecoder();
   dnsServer.processNextRequest();
   server.handleClient();
-  processRobustDecoder();
   delay(1);
 }
