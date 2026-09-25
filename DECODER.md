@@ -1,7 +1,7 @@
 # CW Decoder — Technical Documentation / Documentación Técnica
 
-**Decoder architecture as implemented in the current firmware (v12).**
-**Arquitectura del decoder tal como está implementada en el firmware actual (v12).**
+**Decoder architecture as implemented in the current firmware (v13, unchanged since v12).**
+**Arquitectura del decoder tal como está implementada en el firmware actual (v13, sin cambios desde v12).**
 
 > ⚠️ **BETA** — Thresholds and behavior may change during active development.
 > ⚠️ **BETA** — Los umbrales y el comportamiento pueden cambiar durante el desarrollo activo.

@@ -12,6 +12,7 @@
  *  HARDWARE / PINES
  * ------------------------------------------------------------
  *   GPIO 25  -> Audio buzzer / PWM output
+ *   GPIO 26  -> Salida auxiliar jack 3.5mm (PWM LEDC) — v12.4
  *   GPIO 27  -> Status LED
  *   GPIO 32  -> Straight key input (INPUT_PULLUP)
  *
@@ -59,7 +60,6 @@
  *       en la métrica 🎯; gate de velocidad/🎯 con caracteres
  *       válidos; medianOf() sin mutar el anillo; loop muestrea
  *       llave antes que HTTP; doc re-anclaje ×1.8 corregida.
- *
  *  Author / Autor:  Radio Club Venezolano YV4AA community project
  *  License / Licencia: MIT
  * ============================================================
@@ -79,6 +79,21 @@
 #define LED_PIN     27  // LED indicador
 #define KEY_DOT     32  // Entrada Dit / Llave recta (única entrada en v11)
 
+// Salida auxiliar v12.4 (GPIO26): PWM por LEDC, mismo tono/duty que el buzzer
+#define AUX_PIN 26
+
+// v12.5: modos de salida de audio
+#define AUDIO_MODE_BUZZER 0
+#define AUDIO_MODE_AUX    1
+#define AUDIO_MODE_BOTH   2
+#define AUX_CHANNEL 2   // core 2.x: canal LEDC propio del aux — canal 2 (NO 1): en el ESP32
+                        // los canales 0/1 comparten timer; ledcWriteTone del buzzer (canal 0)
+                        // machacaba el timer del aux y lo convertía en PWM de 700Hz (v12.8)
+
+// v12.6: PWM clase D del aux — portadora fija inaudible + duty modulado por ISR
+// v12.9: PWM normal — el canal LEDC genera la onda cuadrada a la frecuencia
+// del tono; el duty (volumen) lo controla el slider. Sin ISR ni portadora.
+
 // ==========================================
 // PARÁMETROS DE AUDIO / MORSE
 // ==========================================
@@ -88,11 +103,18 @@
 int currentWpm  = 15;
 int ditDuration = 1200 / 15;
 int currentTone = 700;
-int currentVol  = 80;
+// v12.5: volumen separado por salida + modo de audio
+int volBuzzer   = 80;
+int volAux      = 80;
+int audioMode   = AUDIO_MODE_BOTH;
+
+// v12.9: PWM normal — sin timer/ISR (el LEDC genera el PWM por hardware)
 
 volatile bool isPlaying = false;
 volatile bool abortPlayback = false;
 bool toneIsCurrentlyOn = false;
+// v13.10: debounce de /play — ignora reproducciones encadenadas (<500 ms)
+unsigned long playLastMs = 0;
 
 // ==========================================
 // MOTOR POWER-DECODER v12 (ESTRUCTURAS Y VARIABLES)
@@ -109,6 +131,13 @@ String decodedBuffer = "";
 uint32_t decodedTotal = 0;        // total de chars decodificados (para ?since=N)
 int liveCalculatedWpm = 0;
 int liveTimingPct = 100;          // 0-100: regularidad del timing (100 = perfecto)
+
+// v13.10: cerrojo de propietario único del decoder. El cliente que reclama
+// (state=1&reset=1) es dueño; los demás no pueden apagarlo ni reclamarlo
+// mientras el dueño siga activo (<30 s sin poll). Evita que una web abierta
+// en otro dispositivo interfiera con el juego (falsos errores, sonidos).
+String        decoderOwner   = "";
+uint32_t      decoderClaimMs = 0;
 
 // Estado del decoder (muestreo por polling, llave simple en GPIO 32)
 unsigned long pressStartMs   = 0;   // ms del flanco de bajada
@@ -213,17 +242,62 @@ const MorseMap morseTable[] = {
 // ==========================================
 // CONTROL DE AUDIO Y LED
 // ==========================================
+// v12.9: duty del canal según volumen (curva cuadrática, máx 128 = 50%).
+// Con onda cuadrada directa el oído percibe en dB: la curva cuadrática da
+// control fino abajo (10-30%) y saturación suave arriba (70-100%).
+int dutyFromVol(int vol) {
+  if (vol <= 0) return 0;
+  int32_t d = (int32_t)vol * vol * 128 / 10000;   // 100→128, 80→82, 50→32, 20→5, 10→1
+  return (int)(d < 2 ? 2 : d);
+}
+
+// v13.5: duty del AUX RECALIBRADO — el rango entero baja (máx 32 vs 128) y el
+// mínimo cae a 1. La onda cuadrada de 3.3V satura las entradas de línea (por
+// eso "a 4% seguía duro": el pico clipea, no la potencia). Con máx 32 el 100%
+// suena como antes ~20% y abajo hay margen real: 100→32, 80→20, 50→8, 25→2, 10→1.
+// El filtro RC físico (R 1k + C 100nF) sigue siendo el fix definitivo para
+// senoidal suave — esto es la mejora de software máxima sin tocar hardware.
+int dutyFromVolAux(int vol) {
+  if (vol <= 0) return 0;
+  int32_t d = (int32_t)vol * vol * 32 / 10000;
+  return (int)(d < 1 ? 1 : d);
+}
+
+void applyAuxDuty() {
+  int dutyAux = (audioMode == AUDIO_MODE_AUX || audioMode == AUDIO_MODE_BOTH) ? dutyFromVolAux(volAux) : 0;
+  #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcWrite(AUX_PIN, dutyAux);
+  #else
+    ledcWrite(AUX_CHANNEL, dutyAux);
+  #endif
+}
+
+// v12.5: aplica salidas según modo y volumen
+// v12.9: ambas salidas son PWM directo con duty = f(volumen) (curva cuadrática)
+void applyAudioOutputs() {
+  int dutyBuzzer = (audioMode == AUDIO_MODE_BUZZER || audioMode == AUDIO_MODE_BOTH) ? dutyFromVol(volBuzzer) : 0;
+  #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcWrite(AUDIO_PIN, dutyBuzzer);
+  #else
+    ledcWrite(PWM_CHANNEL, dutyBuzzer);
+  #endif
+  applyAuxDuty();
+}
+
 void soundAndLightOn() {
   if (!toneIsCurrentlyOn) {
-    if (currentVol > 0) {
-      int duty = map(currentVol, 0, 100, 0, 128);
+    if (volBuzzer > 0 || volAux > 0) {
+      // v12.8/12.9: frecuencia del tono en ambos canales (timers LEDC
+      // independientes: buzzer=canal0, aux=canal2). Sin ledcWriteTone
+      // (forzaba 10 bits + duty 50%).
       #if ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWriteTone(AUDIO_PIN, currentTone);
-        ledcWrite(AUDIO_PIN, duty);
+        ledcChangeFrequency(AUDIO_PIN, currentTone, PWM_RES);
+        ledcChangeFrequency(AUX_PIN, currentTone, PWM_RES);
       #else
-        ledcWriteTone(PWM_CHANNEL, currentTone);
-        ledcWrite(PWM_CHANNEL, duty);
+        ledcSetup(PWM_CHANNEL, currentTone, PWM_RES);
+        ledcSetup(AUX_CHANNEL, currentTone, PWM_RES);
       #endif
+      applyAudioOutputs();
     }
     digitalWrite(LED_PIN, HIGH);
     toneIsCurrentlyOn = true;
@@ -234,8 +308,10 @@ void soundAndLightOff() {
   if (toneIsCurrentlyOn) {
     #if ESP_ARDUINO_VERSION_MAJOR >= 3
       ledcWrite(AUDIO_PIN, 0);
+      ledcWrite(AUX_PIN, 0);
     #else
       ledcWrite(PWM_CHANNEL, 0);
+      ledcWrite(AUX_CHANNEL, 0);
     #endif
     digitalWrite(LED_PIN, LOW);
     toneIsCurrentlyOn = false;
@@ -588,23 +664,40 @@ void saveSettings() {
   prefs.begin("cw_config", false);
   prefs.putInt("wpm", currentWpm);
   prefs.putInt("tone", currentTone);
-  prefs.putInt("vol", currentVol);
+  prefs.putInt("volBuzzer", volBuzzer);
+  prefs.putInt("volAux", volAux);
+  prefs.putInt("audioMode", audioMode);
   prefs.end();
 }
 
 // ==========================================
 // RUTAS DEL SERVIDOR WEB
 // ==========================================
-void handleRoot() { 
-  server.send(200, "text/html", PAGE_HTML);
+void handleRoot() {
+  // v13.0.1 (FIX página en blanco): el send() de 3 args convierte content a
+  // String (copia a heap) y con el HTML de 66KB la alocación falla -> sirve
+  // Content-Length: 0. send_P con longitud explícita transmite desde flash.
+  // v13.14: no-store — el navegador ya no puede servir HTML/JS viejo tras un
+  // flasheo y hacer parecer que el fix "no sirvió".
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.send_P(200, "text/html", PAGE_HTML, sizeof(PAGE_HTML) - 1);
 }
 
 void handleSetDecoder() {
+  // v13.12: SIN cerrojo de propietario (la exclusividad de v13.10/13.11
+  // bloqueaba el uso real Mac+teléfono a la vez — "otra pestaña tomó el
+  // decoder"). Se restaura el comportamiento v13.9 que funcionaba:
+  //  - state=1: enciende el decoder (quien sea, sin tokens).
+  //  - state=0: pausa (quien sea) — onload/beforeunload, salir de pestañas.
+  //  - reset=1: limpia el buffer; state=1&reset=1 = encender y empezar de
+  //    cero (lo que pide el juego en modo escritura por carta).
+  // Se conservan de v13.10/13.11: /stop, debounce de /play y respuestas JSON.
   if (server.hasArg("state")) {
     bool newState = (server.arg("state") == "1");
     if (newState != decoderEnabled) {
       decoderEnabled = newState;
-      // Al pausar/reanudar, resetear estado del decoder para no arrastrar
+      // Resetear estado de muestreo en transiciones reales: no arrastrar
       // elementos a medio decodificar.
       charPending = false;
       wordPending = false;
@@ -615,7 +708,11 @@ void handleSetDecoder() {
       lastReleaseMs = millis();
     }
   }
-  server.send(200, "text/plain", "OK");
+  if (server.hasArg("reset") && server.arg("reset") == "1") {
+    decodedBuffer = "";
+    decodedTotal = 0;
+  }
+  server.send(200, "application/json", "{\"n\":" + String(decodedTotal) + ",\"owner\":\"\"}");
 }
 
 void handleSetWPM() {
@@ -639,10 +736,13 @@ void handleSetFreq() {
   if (server.hasArg("val")) {
     currentTone = constrain(server.arg("val").toInt(), 300, 1500);
     if (toneIsCurrentlyOn) {
+      // v12.9: tono en caliente en ambos canales
       #if ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWriteTone(AUDIO_PIN, currentTone);
+        ledcChangeFrequency(AUDIO_PIN, currentTone, PWM_RES);
+        ledcChangeFrequency(AUX_PIN, currentTone, PWM_RES);
       #else
-        ledcWriteTone(PWM_CHANNEL, currentTone);
+        ledcSetup(PWM_CHANNEL, currentTone, PWM_RES);
+        ledcSetup(AUX_CHANNEL, currentTone, PWM_RES);
       #endif
     }
     saveSettings();
@@ -650,24 +750,74 @@ void handleSetFreq() {
   server.send(200, "text/plain", "OK");
 }
 
+void handleSetVolBuzzer() {
+  if (server.hasArg("val")) {
+    volBuzzer = constrain(server.arg("val").toInt(), 0, 100);
+    if (toneIsCurrentlyOn) applyAudioOutputs();
+    saveSettings();
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleSetVolAux() {
+  if (server.hasArg("val")) {
+    volAux = constrain(server.arg("val").toInt(), 0, 100);
+    if (toneIsCurrentlyOn) applyAudioOutputs();
+    saveSettings();
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+// v12.5: compat legacy — /set_vol aplica a AMBAS salidas
 void handleSetVol() {
   if (server.hasArg("val")) {
-    currentVol = constrain(server.arg("val").toInt(), 0, 100);
+    volBuzzer = constrain(server.arg("val").toInt(), 0, 100);
+    volAux    = volBuzzer;
+    if (toneIsCurrentlyOn) applyAudioOutputs();
+    saveSettings();
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleSetAudioMode() {
+  if (server.hasArg("val")) {
+    audioMode = constrain(server.arg("val").toInt(), 0, 2);
+    if (toneIsCurrentlyOn) applyAudioOutputs();
     saveSettings();
   }
   server.send(200, "text/plain", "OK");
 }
 
 void handlePlay() {
+  // v13.10: si ya hay audio en curso o el último /play fue hace <500 ms,
+  // se descarta. Impide que una pestaña/equipo con la web abierta encadene
+  // sonidos sobre la partida del teléfono (el Mac con AUTO activo, por ej.).
+  unsigned long nowMs = millis();
+  if (isPlaying || (nowMs - playLastMs < 500UL)) {
+    server.send(200, "text/plain", "SKIP");
+    return;
+  }
+  playLastMs = nowMs;
   if (server.hasArg("text")) {
     String text = server.arg("text");
     // Límite de seguridad: texto máximo de reproducción (evita abusos)
     if (text.length() > 500) text = text.substring(0, 500);
+    // v13.0: override temporal de WPM (pistas progresivas del juego).
+    // Solo afecta a la reproducción; el decoder es auto-adaptativo.
+    int savedWpm = currentWpm;
+    int savedDit = ditDuration;
+    if (server.hasArg("wpm")) {
+      int wpm = constrain(server.arg("wpm").toInt(), 5, 45);
+      currentWpm = wpm;
+      ditDuration = 1200 / wpm;
+    }
     // Respond AFTER playback finishes so the frontend (auto-play)
     // applies the PAUSA AUTO slider at the right moment.
     // Responder DESPUÉS de reproducir. Así el frontend (auto-play)
     // aplica la pausa del slider PAUSA AUTO en el momento correcto.
     playTextMorse(text);
+    currentWpm = savedWpm;
+    ditDuration = savedDit;
     server.send(200, "text/plain", "OK");
   } else {
     server.send(400, "text/plain", "Falta texto");
@@ -692,7 +842,8 @@ void handleGetStatus() {
   } else {
     statusHtml = "🔵 Modo AP Activo (SSID: <b>" + String(ap_ssid_default) + "</b> | IP: 192.168.4.1)";
   }
-  server.send(200, "application/json", "{\"wifi_status\":\"" + statusHtml + "\"}");
+  server.send(200, "application/json", "{\"wifi_status\":\"" + statusHtml + "\",\"audio_mode\":" + String(audioMode) +
+               ",\"vol_buzzer\":" + String(volBuzzer) + ",\"vol_aux\":" + String(volAux) + "}");
 }
 
 void handleScanWiFi() {
@@ -750,12 +901,19 @@ void setup() {
   sta_password = prefs.getString("pass", "");
   currentWpm   = prefs.getInt("wpm", 15);
   currentTone  = prefs.getInt("tone", 700);
-  currentVol   = prefs.getInt("vol", 80);
+  // v12.5: volúmenes separados con migración desde el viejo "vol"
+  volBuzzer = prefs.getInt("volBuzzer", -1);
+  if (volBuzzer < 0) volBuzzer = prefs.getInt("vol", 80);
+  volAux = prefs.getInt("volAux", -1);
+  if (volAux < 0) volAux = prefs.getInt("vol", 80);
+  audioMode = prefs.getInt("audioMode", AUDIO_MODE_BOTH);
   prefs.end();
 
   currentWpm  = constrain(currentWpm, 5, 45);
   currentTone = constrain(currentTone, 300, 1500);
-  currentVol  = constrain(currentVol, 0, 100);
+  volBuzzer   = constrain(volBuzzer, 0, 100);
+  volAux      = constrain(volAux, 0, 100);
+  audioMode   = constrain(audioMode, 0, 2);
   ditDuration = 1200 / currentWpm;
   // The decoder ALWAYS starts at 15 WPM, independent of the stored
   // NVS WPM (which is playback-only). Self-adaptive from real keying.
@@ -778,6 +936,17 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+
+  // v12.9: aux = PWM normal a la frecuencia del tono (canal 2, timer LEDC
+  // independiente del buzzer). El duty (volumen) lo escribe applyAudioOutputs.
+  #if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttach(AUX_PIN, currentTone, PWM_RES);
+    ledcWrite(AUX_PIN, 0);
+  #else
+    ledcSetup(AUX_CHANNEL, currentTone, PWM_RES);
+    ledcAttachPin(AUX_PIN, AUX_CHANNEL);
+    ledcWrite(AUX_CHANNEL, 0);
+  #endif
 
   #if ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcAttach(AUDIO_PIN, currentTone, PWM_RES);
@@ -805,13 +974,19 @@ void setup() {
   server.on("/logo.svg", HTTP_GET, []() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "public, max-age=86400");
-    server.send_P(200, "image/svg+xml; charset=utf-8", LOGO_SVG, strlen_P(LOGO_SVG));
+    // v13.0: logo optimizado servido comprimido (gzip). Los navegadores
+    // descomprimen transparentemente con Content-Encoding: gzip.
+    server.sendHeader("Content-Encoding", "gzip");
+    server.send_P(200, "image/svg+xml; charset=utf-8", (const char*)LOGO_SVG_GZ, LOGO_SVG_GZ_LEN);
   });
 
   server.on("/set_wpm", handleSetWPM);
   server.on("/set_decoder", handleSetDecoder);
   server.on("/set_freq", handleSetFreq);
-  server.on("/set_vol", handleSetVol);
+  server.on("/set_vol", handleSetVol);            // v12.5: legacy = ambas
+  server.on("/set_vol_buzzer", handleSetVolBuzzer);
+  server.on("/set_vol_aux", handleSetVolAux);
+  server.on("/set_audio_mode", handleSetAudioMode);
   server.on("/play", handlePlay);
   server.on("/stop", handleStop);
   server.on("/get_status", handleGetStatus);
@@ -842,7 +1017,10 @@ void setup() {
     out.replace("\t", "\\t");
     String json = "{\"n\":" + String(decodedTotal) + ",\"full\":" + (full ? "true" : "false") +
                   ",\"text\":\"" + out + "\",\"wpm\":" + String(liveCalculatedWpm) +
-                  ",\"timing\":" + String(liveTimingPct) + "}";
+                  ",\"timing\":" + String(liveTimingPct) +
+                  ",\"owner\":\"" + decoderOwner + "\"}";
+    // v13.12: sin cerrojo — ya no hay dueño que refrescar; owner queda vacío
+    // en la respuesta por compatibilidad con frontends v13.10/13.11 en caché.
     server.send(200, "application/json", json);
   });
 
@@ -879,7 +1057,7 @@ void setup() {
   });
 
   server.begin();
-  Serial.println("\n[OK] CW Trainer & Robust Power-Decoder Activo (v12.2)");
+  Serial.println("\n[OK] CW Trainer & Robust Power-Decoder Activo (v13.15)");
 }
 
 // ==========================================
@@ -890,6 +1068,10 @@ void loop() {
   // puede bloquear unos ms con clientes lentos; el decoder es el camino
   // sensible a latencia, así que va primero (menos jitter de flancos).
   processRobustDecoder();
+  // v12.6.1: autocorrección — si no hay reproducción ni tecleo activo,
+  // el tono (buzzer y aux) debe estar apagado. Limpia cualquier estado colgado.
+  if (!isPlaying && !keyIsActive && toneIsCurrentlyOn) soundAndLightOff();
+  // v12.9: PWM normal — sin fade; el duty lo escribe applyAudioOutputs/soundAndLightOff
   dnsServer.processNextRequest();
   server.handleClient();
   delay(1);

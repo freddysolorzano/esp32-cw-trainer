@@ -5,7 +5,9 @@
 [![Arduino Core](https://img.shields.io/badge/Arduino%20Core-2.0.6-green.svg)](https://github.com/espressif/arduino-esp32)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](#)
 
-> ⚠️ **BETA / EN FASE BETA** — This project is under active development. The firmware is functional and tested, but APIs, thresholds and features may change. **Electronic component specifications (BOM, schematic, PCB) will be published soon.** / Este proyecto está en desarrollo activo. El firmware es funcional y probado, pero las APIs, umbrales y funciones pueden cambiar. **Próximamente se publicarán las especificaciones de componentes electrónicos (BOM, esquemático, PCB).**
+> ⚠️ **BETA / EN FASE BETA** — This project is under active development. The firmware is functional and tested (compiles clean, simulated and E2E-tested), but APIs, thresholds and features may change. **Electronic component specifications (BOM, schematic, PCB) will be published soon.** / Este proyecto está en desarrollo activo. El firmware es funcional y probado (compila limpio, validado por simulación y E2E), pero las APIs, umbrales y funciones pueden cambiar. **Próximamente se publicarán las especificaciones de componentes electrónicos (BOM, esquemático, PCB).**
+
+**Current firmware / Firmware actual:** `v13.15` (2026-09-23) · 880,797 B / 67% flash · RAM 44,524 B / 13%
 
 ---
 
@@ -17,7 +19,9 @@
 
 ### 📸 Web UI / Interfaz web
 
-<img src="screenshots/web-ui.png" alt="CW Trainer Web UI" width="320">
+| Flashcards / Lista | Training game / Juego |
+|---|---|
+| <img src="screenshots/web-ui.png" alt="CW Trainer Web UI" width="320"> | <img src="screenshots/game.png" alt="CW Trainer game" width="320"> |
 
 ## 🇬🇧 English
 
@@ -25,11 +29,12 @@
 
 A standalone **ESP32** device that:
 
-- **Plays** Morse code from text (buzzer + LED), 5–45 WPM, tone 300–1500 Hz
+- **Plays** Morse code from text (buzzer + auxiliary jack + LED), 5–45 WPM, tone 300–1500 Hz
 - **Decodes** a straight key in real time with an adaptive, robust decoder
-- Runs a **captive portal WiFi** with an embedded dark-theme web UI (no app needed, works on any phone)
+- Runs a **captive portal WiFi** with an embedded dark-theme web UI (no app needed, works on any phone), bilingual ES/EN
+- **Trains** with a flashcards/player drill **and an adaptive game** (reading + keying modes, Koch progression, per-character spaced repetition)
 - **Coaches timing**: shows a live consistency score (0–100%) so operators can improve their rhythm without frustration
-- Persists settings (WPM / tone / volume / WiFi) in NVS flash
+- Persists settings (WPM / tone / volumes / audio output / WiFi) in NVS flash
 
 Built for radio clubs, classrooms, and self-training.
 
@@ -37,16 +42,21 @@ Built for radio clubs, classrooms, and self-training.
 
 | GPIO | Function |
 |------|----------|
-| 25 | Audio buzzer / PWM output |
+| 25 | Audio buzzer / PWM output (LEDC) |
+| 26 | Auxiliary 3.5 mm jack output (PWM/LEDC — line level, AC-coupled) |
 | 27 | Status LED |
 | 32 | Straight key input (INPUT_PULLUP) |
+| ~~18~~ | ~~Original key input~~ ❌ **DAMAGED** — stuck LOW (internal short, likely ESD); do not use. Key input lives on GPIO 32. |
+| 19 | Free |
 
 > ⚠️ GPIO 18 was the original key input but is **damaged** (stuck LOW, likely ESD) and must not be used. Key input lives on GPIO 32.
 > ⚠️ GPIO 18 era la entrada original de llave pero está **dañado** (clavado en LOW, probable ESD) y no debe usarse. La llave vive en GPIO 32.
 
+**Auxiliary audio (GPIO 26):** passive wiring — `GPIO26 → 18 µF electrolytic capacitor (AC coupling, + toward the ESP32) → single TRS 3.5 mm jack (TIP+RING bridged, SLEEVE to GND)`. Line level ≈ 1.1 V RMS, compatible with any aux input. Two independent volume sliders (buzzer / aux) and an output selector (buzzer / aux / both) in the Config tab.
+
 ### Features
 
-- **Morse player**: text → audio with LED; prosign **SK**; adjustable WPM/tone/volume
+- **Morse player**: text → audio with LED; prosign **SK**; adjustable WPM / tone, separate buzzer/aux volumes, output selector
 - **Adaptive decoder** (straight key only):
   - **Deferred per-character decision**: raw durations are buffered unclassified; on char-end silence, **all elements are classified at once** against a stable median
   - Classification dit < 1.5× / dah > 2.0× with tolerant gray zone by proximity to 1.75×
@@ -56,20 +66,42 @@ Built for radio clubs, classrooms, and self-training.
   - Invalid characters emit `?` and **never pollute** speed or the timing metric
   - Full architecture: [DECODER.md](DECODER.md)
 - **Timing coach**: live consistency metric (coefficient of variation → 0–100%), color-coded in the UI
+- **Training game** (see below): adaptive per-character progression, reading + keying modes
 - **Captive portal** WiFi: own AP `CW_Trainer_YV4AA` (pass `12345678`), plus STA mode with saved credentials
-- **Web UI**: 5 tabs (List, Text, Keyboard, Decoder, Config), dark theme
-  - List tab: flashcards, **shuffle mode**, infinite auto-play, blind mode (hidden word), auto-pause slider
-  - Decoder tab: live decoded text, WPM, **timing badge**, Morse legend
-- **NVS persistence** for WPM/tone/volume and WiFi credentials
+- **Web UI**: 6 tabs (List, Text, Keyboard, Decoder, 🎮 Game, ⚙ Config), dark theme, **bilingual ES/EN** with a 🌐 toggle (auto-detects the browser language, remembers the choice)
+- **NVS persistence** for WPM / tone / volumes / audio output and WiFi credentials
+
+### The training game 🎮
+
+An adaptive Morse trainer with two modes and per-character spaced repetition (progress saved in the browser's `localStorage`):
+
+- **👂 Reading / Lectura:** the code sounds, the letter appears blurred/`?` and the operator picks it from **up to 6 options** (1 correct + 5 distractors from the active set). Progressive hints on failure (replay slower → pattern hint `.-` → reveal). Keyboard shortcuts 1–6.
+- **✊ Keying / Escritura:** the letter is shown and the operator keys it with the **physical straight key**; the decoder compares live (`/get_decoded?since=N`). After 3 failures it plays the code (copy drill) and waits for the operator to key it back.
+- **Sets:** Letters · Numbers · Signs · Advanced (everything).
+- **Adaptive weighting:** weak characters are drilled ~4× more than mastered ones; characters **graduate** (streak ≥3 or accuracy ≥80%) and can degrade again.
+- **Strict Koch progression** (optional): starts with 5 letters and adds 1 per round.
+- **Rounds:** 1–200 per session; live score, streak, best streak, 🎯 timing badge and a per-character status matrix (green = mastered / yellow = training / grey = new).
+- **Repeat round** and **reset progress** buttons.
 
 ### Getting started
 
 1. Install [Arduino IDE](https://www.arduino.cc/en/software) with the [ESP32 core 2.0.6](https://github.com/espressif/arduino-esp32)
-2. Open `cw_trainer.ino` (keep `index_html.h` and `logo.h` in the same folder)
+2. Open `cw_trainer.ino` (keep `index_html.h` and `logo.h` in the same folder — the folder must be named `cw_trainer`)
 3. Select your ESP32 board (e.g. "ESP32 Dev Module")
-4. Wire the buzzer to GPIO 25, LED to GPIO 27, straight key to GPIO 32 (and GND)
+4. Wire the buzzer to GPIO 25, the status LED to GPIO 27, the straight key to GPIO 32 (and GND); optional aux output on GPIO 26
 5. Flash and power on
 6. Connect to the `CW_Trainer_YV4AA` WiFi (password `12345678`) and open `http://192.168.4.1`
+
+### Web UI tabs
+
+| Tab | What it does |
+|-----|--------------|
+| 📋 **List** | Flashcards / word list drill: load a list, auto-play, pause slider, shuffle, blind mode, auto-play on navigation |
+| 💬 **Text** | Free message / QSO: type text and transmit it as Morse (presets CQ / 73) |
+| ⌨️ **Keyboard** | Direct Morse keyboard: tap keys to sound each character |
+| 📟 **Decoder** | Live decoded text, WPM, 🎯 timing badge, Morse legend |
+| 🎮 **Game** | Adaptive training game (reading + keying) |
+| ⚙ **Config** | WPM, tone, audio output selector, buzzer/aux volumes, WiFi scan / save / forget, network status |
 
 ### How the decoder works (short version)
 
@@ -109,11 +141,12 @@ Full technical documentation: [DECODER.md](DECODER.md)
 
 Un dispositivo **ESP32** autónomo que:
 
-- **Reproduce** código Morse desde texto (buzzer + LED), 5–45 WPM, tono 300–1500 Hz
+- **Reproduce** código Morse desde texto (buzzer + jack auxiliar + LED), 5–45 WPM, tono 300–1500 Hz
 - **Decodifica** una llave simple en tiempo real con un decoder adaptativo y robusto
-- Levanta un **portal cautivo WiFi** con interfaz web embebida en tema oscuro (sin app, funciona en cualquier teléfono)
+- Levanta un **portal cautivo WiFi** con interfaz web embebida en tema oscuro (sin app, funciona en cualquier teléfono), bilingüe ES/EN
+- **Entrena** con un modo fichas/reproductor **y un juego adaptativo** (modos lectura + tecleo, progresión Koch, repetición espaciada por carácter)
 - **Entrena el timing**: muestra un puntaje de consistencia en vivo (0–100%) para que los operadores mejoren su ritmo sin frustración
-- Persiste la configuración (WPM / tono / volumen / WiFi) en flash NVS
+- Persiste la configuración (WPM / tono / volúmenes / salida de audio / WiFi) en flash NVS
 
 Hecho para radio clubes, aulas y auto-entrenamiento.
 
@@ -121,13 +154,18 @@ Hecho para radio clubes, aulas y auto-entrenamiento.
 
 | GPIO | Función |
 |------|---------|
-| 25 | Buzzer de audio / salida PWM |
+| 25 | Buzzer de audio / salida PWM (LEDC) |
+| 26 | Salida auxiliar jack 3.5 mm (PWM/LEDC — nivel de línea, acoplada en AC) |
 | 27 | LED indicador |
 | 32 | Entrada de llave simple (INPUT_PULLUP) |
+| ~~18~~ | ~~Entrada original de llave~~ ❌ **DAÑADO** — clavado en LOW (corto interno, probable ESD); no usar. La llave vive en GPIO 32. |
+| 19 | Libre |
+
+**Audio auxiliar (GPIO 26):** armado pasivo — `GPIO26 → capacitor electrolítico 18 µF (acoplamiento AC, + hacia el ESP32) → jack TRS 3.5 mm único (TIP+RING puenteados, SLEEVE a GND)`. Nivel de línea ≈ 1.1 V RMS, compatible con cualquier entrada aux. Dos sliders de volumen independientes (buzzer / aux) y un selector de salida (buzzer / aux / ambas) en la pestaña Config.
 
 ### Características
 
-- **Reproductor Morse**: texto → audio con LED; prosign **SK**; WPM/tono/volumen ajustables
+- **Reproductor Morse**: texto → audio con LED; prosign **SK**; WPM/tono ajustables, volúmenes buzzer/aux separados y selector de salida
 - **Decoder adaptativo** (solo llave simple):
   - **Decisión diferida por carácter**: las duraciones crudas se acumulan sin clasificar; al llegar el silencio de fin de carácter, **todos los elementos se clasifican de una vez** contra una mediana estable
   - Clasificación dit < 1.5× / dah > 2.0× con zona gris tolerante por cercanía a 1.75×
@@ -137,20 +175,42 @@ Hecho para radio clubes, aulas y auto-entrenamiento.
   - Los caracteres inválidos emiten `?` y **nunca contaminan** la velocidad ni la métrica de timing
   - Arquitectura completa: [DECODER.md](DECODER.md)
 - **Entrenador de timing**: métrica de consistencia en vivo (coeficiente de variación → 0–100%), con colores en la UI
+- **Juego de entrenamiento** (ver abajo): progresión adaptativa por carácter, modos lectura + tecleo
 - **Portal cautivo** WiFi: AP propio `CW_Trainer_YV4AA` (clave `12345678`), más modo STA con credenciales guardadas
-- **Interfaz web**: 5 pestañas (Lista, Texto, Teclado, Decoder, Config), tema oscuro
-  - Pestaña Lista: flashcards, **modo aleatorio**, auto-reproducción infinita, modo oculto (palabra escondida), slider de pausa automática
-  - Pestaña Decoder: texto decodificado en vivo, WPM, **badge de timing**, leyenda Morse
-- **Persistencia NVS** para WPM/tono/volumen y credenciales WiFi
+- **Interfaz web**: 6 pestañas (Lista, Texto, Teclado, Decoder, 🎮 Juego, ⚙ Config), tema oscuro, **bilingüe ES/EN** con botón 🌐 (detecta el idioma del navegador y recuerda la elección)
+- **Persistencia NVS** para WPM / tono / volúmenes / salida de audio y credenciales WiFi
+
+### El juego de entrenamiento 🎮
+
+Entrenador Morse adaptativo con dos modos y repetición espaciada por carácter (progreso guardado en `localStorage` del navegador):
+
+- **👂 Lectura:** suena el código, la letra aparece borrosa/`?` y el operador la elige entre **hasta 6 opciones** (1 correcta + 5 distractores del set activo). Pistas progresivas al fallar (replay más lento → pista de patrón `.-` → revelar). Atajos 1–6.
+- **✊ Escritura:** se muestra la letra y el operador la teclea con la **llave física**; el decoder compara en vivo (`/get_decoded?since=N`). Tras 3 fallos reproduce el código (copy drill) y espera a que el operador lo teclee.
+- **Sets:** Letras · Números · Signos · Avanzado (todo).
+- **Ponderación adaptativa:** las letras débiles se martillan ~4× más que las dominadas; los caracteres **se gradúan** (racha ≥3 o precisión ≥80%) y pueden degradarse de nuevo.
+- **Progresión Koch estricta** (opcional): empieza con 5 letras y suma 1 por ronda.
+- **Rondas:** 1–200 por sesión; score, racha, mejor racha, badge 🎯 de timing y matriz de estado por carácter (verde = dominado / amarillo = entrena / gris = nuevo).
+- Botones **Repetir ronda** y **Reiniciar progreso**.
 
 ### Primeros pasos
 
 1. Instala [Arduino IDE](https://www.arduino.cc/en/software) con el [core ESP32 2.0.6](https://github.com/espressif/arduino-esp32)
-2. Abre `cw_trainer.ino` (mantén `index_html.h` y `logo.h` en la misma carpeta)
+2. Abre `cw_trainer.ino` (mantén `index_html.h` y `logo.h` en la misma carpeta — la carpeta debe llamarse `cw_trainer`)
 3. Selecciona tu placa ESP32 (ej. "ESP32 Dev Module")
-4. Conecta el buzzer al GPIO 25, el LED al GPIO 27, la llave simple al GPIO 32 (y GND)
+4. Conecta el buzzer al GPIO 25, el LED al GPIO 27, la llave simple al GPIO 32 (y GND); salida auxiliar opcional en GPIO 26
 5. Flashea y enciende
 6. Conéctate a la WiFi `CW_Trainer_YV4AA` (clave `12345678`) y abre `http://192.168.4.1`
+
+### Pestañas de la interfaz web
+
+| Pestaña | Qué hace |
+|---------|----------|
+| 📋 **Lista** | Fichas / lista de palabras: cargar lista, auto-play, slider de pausa, aleatorio, modo oculto, auto-reproducir al navegar |
+| 💬 **Texto** | Mensaje libre / QSO: escribes texto y lo transmite en Morse (presets CQ / 73) |
+| ⌨️ **Teclado** | Teclado Morse directo: pulsas teclas y suena cada carácter |
+| 📟 **Decoder** | Texto decodificado en vivo, WPM, badge de timing 🎯, leyenda Morse |
+| 🎮 **Juego** | Juego de entrenamiento adaptativo (lectura + tecleo) |
+| ⚙ **Config** | WPM, tono, selector de salida de audio, volúmenes buzzer/aux, escanear/guardar/olvidar WiFi, estado de red |
 
 ### Cómo funciona el decoder (versión corta)
 
@@ -186,8 +246,19 @@ Documentación técnica completa: [DECODER.md](DECODER.md)
 
 ## 🤝 Contributing / Contribuciones
 
-Found a bug or want a feature? Open an issue or a PR. Ideas welcome: paddle support, OTA updates, more prosigns, session logs, iambic mode.
+Found a bug or want a feature? Open an issue or a PR. Ideas welcome: paddle support, iambic keyer, session logs, more prosigns, OTA updates, printable training sheets.
 
-¿Encontraste un bug o quieres una mejora? Abre un issue o un PR. Ideas bienvenidas: soporte de paddle, actualización OTA, más prosigns, registro de sesiones, modo iámbico.
+¿Encontraste un bug o quieres una mejora? Abre un issue o un PR. Ideas bienvenidas: soporte de paddle, keyer iámbico, registro de sesiones, más prosigns, actualización OTA, planillas de entrenamiento imprimibles.
+
+## 📄 Changelog / Historial
+
+See the commit history for the full changelog. Recent milestones:
+
+- **v13.15** — Game: Reading mode with up to 6 options; default word list = Q-codes.
+- **v13.14** — Game: definitive fix for silent flashcards (queued/forced playback); `Cache-Control: no-store`; visible version tag in the footer.
+- **v13.12 / v13.11 / v13.10** — Decoder lock removed (open semantics) for simultaneous Mac + phone use; custom rounds.
+- **v13** — 🎮 Game tab (Reading + Keying modes, Koch, adaptive progression); optimized logo served gzipped (492 KB → 37 KB in flash).
+- **v12.x** — Deferred per-character decoder; auxiliary audio output (GPIO 26) with output selector and separate volumes; bilingual UI (ES/EN).
+- **v11.x** — Decoder engine rewrite (median, hysteresis, Morse structure, timing metric).
 
 **73 de YV4AA** 📻
